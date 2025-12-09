@@ -4,6 +4,7 @@
 #include <cstring>
 #include <iostream>
 #include <optional>
+#include <string>
 #include <vector>
 
 struct ProgramState;
@@ -528,6 +529,12 @@ Primitive primitives[] = {
 			std::cout << std::endl;
 		}
 	} } },
+	{ "drop", "", { .fun = [](ProgramState &state) {
+		state.stack.pop_back();
+	} } },
+	{ "dup", "", { .fun = [](ProgramState &state) {
+		state.stack.push_back(*state.stack.rbegin());
+	} } },
 };
 
 int main() {
@@ -542,14 +549,23 @@ int main() {
 	};
 
 	Interpreter interpreter {
-		.line = "1 2 + .",
-		.len = 7,
+		.line = nullptr,
+		.len = 0,
 		.action = Interpreter::Run,
 		.curr_word = {},
 		.state = state,
 	};
 
-	while (!state.error && interpreter.len > 0) {
-		interpreter.advance();
+	for (;;) {
+		std::cout << "> ";
+		std::string line;
+		std::getline(std::cin, line);
+
+		interpreter.line = line.c_str();
+		interpreter.len = line.size();
+
+		while (!state.error && interpreter.len > 0) {
+			interpreter.advance();
+		}
 	}
 }
