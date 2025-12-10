@@ -199,6 +199,9 @@ using Stack = std::vector<number_t>;
 static const number_t &stack_peek(const Stack &stack, idx_t nth = 0) {
 	return stack[length(stack)-1 - nth];
 }
+static number_t &stack_peek(Stack &stack, idx_t nth = 0) {
+	return stack[length(stack)-1 - nth];
+}
 
 #ifdef KERNEL
 constexpr size_t CODE_BUFFER_SIZE = 1024;
