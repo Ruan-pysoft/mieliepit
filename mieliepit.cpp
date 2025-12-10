@@ -168,9 +168,8 @@ void ignore_comment(Interpreter &interpreter) {
 		interpreter.get_word();
 
 		if (interpreter.curr_word.len == 1 && interpreter.curr_word.text[0] == ')') {
+			interpreter.curr_word.handled = true;
 			break;
-		} else {
-			interpreter.unget_word();
 		}
 
 		interpreter.ignore_next();

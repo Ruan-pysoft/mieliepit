@@ -196,7 +196,7 @@ using Stack = FixedBuffer<number_t, STACK_SIZE>;
 #else
 using Stack = std::vector<number_t>;
 #endif
-static constexpr const number_t &stack_peek(const Stack &stack, idx_t nth = 0) {
+static const number_t &stack_peek(const Stack &stack, idx_t nth = 0) {
 	return stack[length(stack)-1 - nth];
 }
 
@@ -218,12 +218,13 @@ struct ProgramState {
 	Stack stack;
 	CodeBuffer code;
 	const char *error;
+	bool error_handled;
 
 	Words words;
 	const Primitive *primitives;
-	const size_t primitives_len;
+	size_t primitives_len;
 	const Syntax *syntax;
-	const size_t syntax_len;
+	size_t syntax_len;
 };
 
 struct Interpreter {
@@ -237,10 +238,13 @@ struct Interpreter {
 	struct {
 		const char *text;
 		size_t len;
+		bool handled;
 	} curr_word;
 	ProgramState &state;
 
 	void get_word() {
+		if (curr_word.text != nullptr && !curr_word.handled) return;
+
 		while (len > 0 && line[0] == ' ') {
 			--len;
 			++line;
@@ -251,13 +255,8 @@ struct Interpreter {
 			++line;
 		}
 		curr_word.len = line - curr_word.text;
-	}
-	void unget_word() {
-		line = curr_word.text;
-		len += curr_word.len;
 
-		curr_word.text = nullptr;
-		curr_word.len = 0;
+		curr_word.handled = false;
 	}
 
 	maybe_t<idx_t> read_word_idx() {
@@ -270,11 +269,10 @@ struct Interpreter {
 			if (strlen(state.words[i].name) != curr_word.len) continue;
 
 			if (strncmp(state.words[i].name, curr_word.text, curr_word.len) == 0) {
+				curr_word.handled = true;
 				return i;
 			}
 		}
-
-		unget_word();
 		return {};
 	}
 	maybe_t<idx_t> read_primitive_idx() {
@@ -287,11 +285,11 @@ struct Interpreter {
 			if (strlen(state.primitives[i].name) != curr_word.len) continue;
 
 			if (strncmp(state.primitives[i].name, curr_word.text, curr_word.len) == 0) {
+				curr_word.handled = true;
 				return i;
 			}
 		}
 
-		unget_word();
 		return {};
 	}
 	maybe_t<idx_t> read_syntax_idx() {
@@ -304,11 +302,11 @@ struct Interpreter {
 			if (strlen(state.syntax[i].name) != curr_word.len) continue;
 
 			if (strncmp(state.syntax[i].name, curr_word.text, curr_word.len) == 0) {
+				curr_word.handled = true;
 				return i;
 			}
 		}
 
-		unget_word();
 		return {};
 	}
 	maybe_t<number_t> read_number() {
@@ -317,7 +315,6 @@ struct Interpreter {
 		number_t number = {0};
 		for (size_t i = 0; i < curr_word.len; ++i) {
 			if (curr_word.text[i] < '0' || curr_word.text[i] > '9') {
-				unget_word();
 				return {};
 			}
 
@@ -329,11 +326,12 @@ struct Interpreter {
 			if (number.pos < prev.pos) {
 				// overflow detected
 				state.error = "Error: Number number too large!";
-				unget_word();
+				state.error_handled = false;
 				return {};
 			}
 		}
 
+		curr_word.handled = true;
 		return number;
 	}
 	maybe_t<Value> read_value() {
@@ -362,6 +360,7 @@ struct Interpreter {
 		} };
 
 		state.error = "Error: undefined word";
+		state.error_handled = false;
 
 		return {};
 	}
@@ -386,6 +385,7 @@ struct Interpreter {
 			} break;
 			case Value::RawFunction: {
 				state.error = "Error: cannot interpret raw function";
+				state.error_handled = false;
 			} break;
 		}
 	}
@@ -412,6 +412,7 @@ struct Interpreter {
 			} break;
 			case Value::RawFunction: {
 				state.error = "Error: cannot interpret raw function";
+				state.error_handled = false;
 				return {};
 			} break;
 		}
@@ -439,6 +440,7 @@ struct Interpreter {
 			} break;
 			case Value::RawFunction: {
 				state.error = "Error: cannot interpret raw function";
+				state.error_handled = false;
 			} break;
 		}
 	}
@@ -485,6 +487,7 @@ struct Runner {
 			} break;
 			case Value::Syntax: {
 				state.error = "Error: cannot run compiled syntax expression";
+				state.error_handled = false;
 			} break;
 			case Value::Number: {
 				run_number(value.number);
@@ -511,6 +514,7 @@ struct Runner {
 			} break;
 			case Value::Syntax: {
 				state.error = "Error: cannot run compiled syntax expression";
+				state.error_handled = false;
 			} break;
 			case Value::Number: {
 				ignore_number(value.number);

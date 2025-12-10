@@ -17,7 +17,7 @@ Primitive primitives[] = {
 		const number_t res = {
 			.pos = a.pos + b.pos
 		};
-		state.stack.push_back(res);
+		push(state.stack, res);
 	} },
 	{ ".", "some description", [](ProgramState &state) {
 		if (state.stack.size() == 0) {
@@ -33,7 +33,7 @@ Primitive primitives[] = {
 		pop(state.stack);
 	} },
 	{ "dup", "", [](ProgramState &state) {
-		state.stack.push_back(*state.stack.rbegin());
+		push(state.stack, stack_peek(state.stack));
 	} },
 };
 
@@ -42,6 +42,7 @@ int main() {
 		.stack = {},
 		.code = {},
 		.error = nullptr,
+		.error_handled = false,
 
 		.words = {},
 		.primitives = primitives,
