@@ -17,14 +17,9 @@ struct RawFunction {
 	void (*ignore)(Runner&) = nullptr;
 };
 
-using word_idx_t = uint64_t;
+using idx_t = uint64_t;
 static_assert(
-	sizeof(word_idx_t) == sizeof(std::size_t),
-	"Expected word size to be 64 bits"
-);
-using primitive_idx_t = uint64_t;
-static_assert(
-	sizeof(primitive_idx_t) == sizeof(std::size_t),
+	sizeof(idx_t) == sizeof(std::size_t),
 	"Expected word size to be 64 bits"
 );
 union number_t {
@@ -45,19 +40,22 @@ struct Value {
 	enum Type {
 		Word,
 		Primative,
+		Syntax,
 		Number,
 		RawFunction,
 	} type;
 	union {
 		uint64_t raw_value;
-		word_idx_t word_idx;
-		primitive_idx_t primitive_idx;
+		idx_t word_idx;
+		idx_t primitive_idx;
+		idx_t syntax_idx;
 		number_t number;
 		function_ptr_t function_ptr;
 	};
 };
 
-void run_word_idx(word_idx_t word_idx, ProgramState &state);
+void run_word_idx(idx_t word_idx, ProgramState &state);
+void run_primitive_idx(idx_t primitive_idx, ProgramState &state);
 void run_number(number_t number, ProgramState &state);
 void run_function_ptr(function_ptr_t function_ptr, ProgramState &state);
 
@@ -66,22 +64,21 @@ using Stack = std::vector<number_t>;
 struct Primitive {
 	const char *name;
 	const char *desc;
-	union {
-		void (*fun)(ProgramState&); // simple function
-		struct { // complex function
-			void (*run)(Runner&);
-			void (*interpret)(Interpreter&);
-		};
-	};
-	bool complex = false;
-	std::optional<size_t> (*compile)(Interpreter&) = nullptr;
-	void (*ignore)(Interpreter&) = nullptr;
+	void (*fun)(ProgramState&);
+};
+
+struct Syntax {
+	const char *name;
+	const char *desc;
+	void (*run)(Interpreter&);
+	void (*ignore)(Interpreter&);
+	std::optional<std::size_t> (*compile)(Interpreter&);
 };
 
 struct Word {
 	const char *name;
 	const char *desc;
-	word_idx_t code_pos;
+	idx_t code_pos;
 	size_t code_len;
 };
 
@@ -93,6 +90,8 @@ struct ProgramState {
 	std::vector<Word> words;
 	Primitive *primitives;
 	std::size_t primitives_len;
+	Syntax *syntax;
+	std::size_t syntax_len;
 };
 
 struct Interpreter {
@@ -129,12 +128,12 @@ struct Interpreter {
 		curr_word.len = 0;
 	}
 
-	std::optional<word_idx_t> read_word_idx() {
+	std::optional<idx_t> read_word_idx() {
 		get_word();
 
 		if (curr_word.len == 0) return {};
 
-		word_idx_t i = state.words.size();
+		idx_t i = state.words.size();
 		while (i --> 0) {
 			if (strlen(state.words[i].name) != curr_word.len) continue;
 
@@ -146,16 +145,33 @@ struct Interpreter {
 		unget_word();
 		return {};
 	}
-	std::optional<primitive_idx_t> read_primitive_idx() {
+	std::optional<idx_t> read_primitive_idx() {
 		get_word();
 
 		if (curr_word.len == 0) return {};
 
-		primitive_idx_t i = state.primitives_len;
+		idx_t i = state.primitives_len;
 		while (i --> 0) {
 			if (strlen(state.primitives[i].name) != curr_word.len) continue;
 
 			if (strncmp(state.primitives[i].name, curr_word.text, curr_word.len) == 0) {
+				return i;
+			}
+		}
+
+		unget_word();
+		return {};
+	}
+	std::optional<idx_t> read_syntax_idx() {
+		get_word();
+
+		if (curr_word.len == 0) return {};
+
+		idx_t i = state.syntax_len;
+		while (i --> 0) {
+			if (strlen(state.syntax[i].name) != curr_word.len) continue;
+
+			if (strncmp(state.syntax[i].name, curr_word.text, curr_word.len) == 0) {
 				return i;
 			}
 		}
@@ -201,6 +217,12 @@ struct Interpreter {
 			.primitive_idx = primitive_idx.value(),
 		} };
 
+		const auto syntax_idx = read_syntax_idx();
+		if (syntax_idx.has_value()) return { {
+			.type = Value::Syntax,
+			.syntax_idx = syntax_idx.value(),
+		} };
+
 		const auto number = read_number();
 		if (number.has_value()) return { {
 			.type = Value::Number,
@@ -212,8 +234,9 @@ struct Interpreter {
 		return {};
 	}
 
-	void run_word_idx(word_idx_t word_idx);
-	void run_primitive_idx(primitive_idx_t primitive_idx);
+	void run_word_idx(idx_t word_idx);
+	void run_primitive_idx(idx_t primitive_idx);
+	void run_syntax_idx(idx_t syntax_idx);
 	void run_number(number_t number);
 	void run_value(Value value) {
 		switch (value.type) {
@@ -222,6 +245,9 @@ struct Interpreter {
 			} break;
 			case Value::Primative: {
 				run_primitive_idx(value.primitive_idx);
+			} break;
+			case Value::Syntax: {
+				run_syntax_idx(value.syntax_idx);
 			} break;
 			case Value::Number: {
 				run_number(value.number);
@@ -234,8 +260,9 @@ struct Interpreter {
 
 	bool run_next();
 
-	std::optional<std::size_t> compile_word_idx(word_idx_t word_idx);
-	std::optional<std::size_t> compile_primitive_idx(primitive_idx_t primitive_idx);
+	std::optional<std::size_t> compile_word_idx(idx_t word_idx);
+	std::optional<std::size_t> compile_primitive_idx(idx_t primitive_idx);
+	std::optional<std::size_t> compile_syntax_idx(idx_t syntax_idx);
 	std::optional<std::size_t> compile_number(number_t number);
 	std::optional<std::size_t> compile_value(Value value) {
 		switch (value.type) {
@@ -244,6 +271,9 @@ struct Interpreter {
 			} break;
 			case Value::Primative: {
 				return compile_primitive_idx(value.primitive_idx);
+			} break;
+			case Value::Syntax: {
+				return compile_syntax_idx(value.syntax_idx);
 			} break;
 			case Value::Number: {
 				return compile_number(value.number);
@@ -257,8 +287,9 @@ struct Interpreter {
 
 	std::optional<std::size_t> compile_next();
 
-	void ignore_word_idx(word_idx_t word_idx);
-	void ignore_primitive_idx(primitive_idx_t primitive_idx);
+	void ignore_word_idx(idx_t word_idx);
+	void ignore_primitive_idx(idx_t primitive_idx);
+	void ignore_syntax_idx(idx_t syntax_idx);
 	void ignore_number(number_t number);
 	void ignore_value(Value value) {
 		switch (value.type) {
@@ -267,6 +298,9 @@ struct Interpreter {
 			} break;
 			case Value::Primative: {
 				ignore_primitive_idx(value.primitive_idx);
+			} break;
+			case Value::Syntax: {
+				ignore_syntax_idx(value.syntax_idx);
 			} break;
 			case Value::Number: {
 				ignore_number(value.number);
@@ -305,8 +339,8 @@ struct Runner {
 		return res;
 	}
 
-	void run_word_idx(word_idx_t word_idx);
-	void run_primitive_idx(primitive_idx_t primitive_idx);
+	void run_word_idx(idx_t word_idx);
+	void run_primitive_idx(idx_t primitive_idx);
 	void run_number(number_t number);
 	void run_function_ptr(function_ptr_t function_ptr);
 	void run_value(Value value) {
@@ -316,6 +350,9 @@ struct Runner {
 			} break;
 			case Value::Primative: {
 				run_primitive_idx(value.primitive_idx);
+			} break;
+			case Value::Syntax: {
+				state.error = "Error: cannot run compiled syntax expression";
 			} break;
 			case Value::Number: {
 				run_number(value.number);
@@ -328,8 +365,8 @@ struct Runner {
 
 	bool run_next();
 
-	void ignore_word_idx(word_idx_t word_idx);
-	void ignore_primitive_idx(primitive_idx_t primitive_idx);
+	void ignore_word_idx(idx_t word_idx);
+	void ignore_primitive_idx(idx_t primitive_idx);
 	void ignore_number(number_t number);
 	void ignore_function_ptr(function_ptr_t function_ptr);
 	void ignore_value(Value value) {
@@ -339,6 +376,9 @@ struct Runner {
 			} break;
 			case Value::Primative: {
 				ignore_primitive_idx(value.primitive_idx);
+			} break;
+			case Value::Syntax: {
+				state.error = "Error: cannot run compiled syntax expression";
 			} break;
 			case Value::Number: {
 				ignore_number(value.number);
@@ -359,7 +399,7 @@ struct Runner {
 	}
 };
 
-void run_word_idx(word_idx_t word_idx, ProgramState &state) {
+void run_word_idx(idx_t word_idx, ProgramState &state) {
 	assert(word_idx < state.words.size());
 
 	const auto &word = state.words[word_idx];
@@ -377,6 +417,12 @@ void run_word_idx(word_idx_t word_idx, ProgramState &state) {
 		runner.advance();
 	}
 }
+void run_primitive_idx(idx_t primitive_idx, ProgramState &state) {
+	assert(primitive_idx < state.primitives_len);
+
+	const auto &primitives = state.primitives[primitive_idx];
+	primitives.fun(state);
+}
 void run_number(number_t number, ProgramState &state) {
 	state.stack.push_back(number);
 }
@@ -384,18 +430,17 @@ void run_function_ptr(function_ptr_t function_ptr, ProgramState &state) {
 	function_ptr->run(state);
 }
 
-void Interpreter::run_word_idx(word_idx_t word_idx) {
+void Interpreter::run_word_idx(idx_t word_idx) {
 	::run_word_idx(word_idx, state);
 }
-void Interpreter::run_primitive_idx(primitive_idx_t primitive_idx) {
-	assert(primitive_idx < state.primitives_len);
+void Interpreter::run_primitive_idx(idx_t primitive_idx) {
+	::run_primitive_idx(primitive_idx, state);
+}
+void Interpreter::run_syntax_idx(idx_t syntax_idx) {
+	assert(syntax_idx < state.syntax_len);
 
-	const auto &primitive = state.primitives[primitive_idx];
-	if (primitive.complex) {
-		primitive.interpret(*this);
-	} else {
-		primitive.fun(state);
-	}
+	const auto &syntax = state.syntax[syntax_idx];
+	syntax.run(*this);
 }
 void Interpreter::run_number(number_t number) {
 	::run_number(number, state);
@@ -409,26 +454,23 @@ bool Interpreter::run_next() {
 	} else return false;
 }
 
-std::optional<std::size_t> Interpreter::compile_word_idx(word_idx_t word_idx) {
+std::optional<std::size_t> Interpreter::compile_word_idx(idx_t word_idx) {
 	assert(word_idx < state.words.size());
 
 	state.code.push_back({ .type = Value::Word, .word_idx = word_idx });
 	return 1;
 }
-std::optional<std::size_t> Interpreter::compile_primitive_idx(primitive_idx_t primitive_idx) {
+std::optional<std::size_t> Interpreter::compile_primitive_idx(idx_t primitive_idx) {
 	assert(primitive_idx < state.primitives_len);
 
-	const auto &primitive = state.primitives[primitive_idx];
+	state.code.push_back({ .type = Value::Primative, .primitive_idx = primitive_idx });
+	return 1;
+}
+std::optional<std::size_t> Interpreter::compile_syntax_idx(idx_t syntax_idx) {
+	assert(syntax_idx < state.syntax_len);
 
-	if (primitive.compile != nullptr) {
-		return primitive.compile(*this);
-	} else {
-		state.code.push_back({
-			.type = Value::Primative,
-			.primitive_idx = primitive_idx,
-		});
-		return 1;
-	}
+	const auto &syntax = state.syntax[syntax_idx];
+	return syntax.compile(*this);
 }
 std::optional<std::size_t> Interpreter::compile_number(number_t number) {
 	state.code.push_back({ .type = Value::Number, .number = number });
@@ -443,15 +485,13 @@ std::optional<std::size_t> Interpreter::compile_next() {
 	return {};
 }
 
-void Interpreter::ignore_word_idx(word_idx_t) { }
-void Interpreter::ignore_primitive_idx(primitive_idx_t primitive_idx) {
-	assert(primitive_idx < state.primitives_len);
+void Interpreter::ignore_word_idx(idx_t) { }
+void Interpreter::ignore_primitive_idx(idx_t) { }
+void Interpreter::ignore_syntax_idx(idx_t syntax_idx) {
+	assert(syntax_idx < state.syntax_len);
 
-	const auto &primitive = state.primitives[primitive_idx];
-
-	if (primitive.ignore != nullptr) {
-		return primitive.ignore(*this);
-	}
+	const auto &syntax = state.syntax[syntax_idx];
+	syntax.ignore(*this);
 }
 void Interpreter::ignore_number(number_t) { }
 
@@ -463,18 +503,11 @@ bool Interpreter::ignore_next() {
 	} return false;
 }
 
-void Runner::run_word_idx(word_idx_t word_idx) {
+void Runner::run_word_idx(idx_t word_idx) {
 	::run_word_idx(word_idx, state);
 }
-void Runner::run_primitive_idx(primitive_idx_t primitive_idx) {
-	assert(primitive_idx < state.primitives_len);
-
-	const auto &primitive = state.primitives[primitive_idx];
-	if (primitive.complex) {
-		primitive.run(*this);
-	} else {
-		primitive.fun(state);
-	}
+void Runner::run_primitive_idx(idx_t primitive_idx) {
+	::run_primitive_idx(primitive_idx, state);
 }
 void Runner::run_number(number_t number) {
 	::run_number(number, state);
@@ -491,8 +524,8 @@ bool Runner::run_next() {
 	} else return false;
 }
 
-void Runner::ignore_word_idx(word_idx_t) { }
-void Runner::ignore_primitive_idx(primitive_idx_t) { }
+void Runner::ignore_word_idx(idx_t) { }
+void Runner::ignore_primitive_idx(idx_t) { }
 void Runner::ignore_number(number_t) { }
 void Runner::ignore_function_ptr(function_ptr_t function_ptr) {
 	if (function_ptr->ignore != nullptr) {
@@ -509,7 +542,7 @@ bool Runner::ignore_next() {
 }
 
 Primitive primitives[] = {
-	{ "+", "some description", { .fun = [](ProgramState &state) {
+	{ "+", "some description", [](ProgramState &state) {
 		const number_t a = *state.stack.rbegin();
 		state.stack.pop_back();
 		const number_t b = *state.stack.rbegin();
@@ -518,8 +551,8 @@ Primitive primitives[] = {
 			.pos = a.pos + b.pos
 		};
 		state.stack.push_back(res);
-	} } },
-	{ ".", "some description", { .fun = [](ProgramState &state) {
+	} },
+	{ ".", "some description", [](ProgramState &state) {
 		if (state.stack.size() == 0) {
 			std::cout << "empty." << std::endl;
 		} else {
@@ -528,13 +561,36 @@ Primitive primitives[] = {
 			}
 			std::cout << std::endl;
 		}
-	} } },
-	{ "drop", "", { .fun = [](ProgramState &state) {
+	} },
+	{ "drop", "", [](ProgramState &state) {
 		state.stack.pop_back();
-	} } },
-	{ "dup", "", { .fun = [](ProgramState &state) {
+	} },
+	{ "dup", "", [](ProgramState &state) {
 		state.stack.push_back(*state.stack.rbegin());
-	} } },
+	} },
+};
+
+void ignore_comment(Interpreter &interpreter) {
+	while (true) {
+		interpreter.get_word();
+
+		if (interpreter.curr_word.len == 1 && interpreter.curr_word.text[0] == ')') {
+			break;
+		} else {
+			interpreter.unget_word();
+		}
+
+		interpreter.ignore_next();
+	}
+}
+
+Syntax syntax[] = {
+	{ "(", "", ignore_comment, ignore_comment,
+		[](Interpreter &interpreter) -> std::optional<std::size_t> {
+			ignore_comment(interpreter);
+			return 0;
+		}
+	},
 };
 
 int main() {
@@ -546,6 +602,8 @@ int main() {
 		.words = {},
 		.primitives = primitives,
 		.primitives_len = sizeof(primitives)/sizeof(*primitives),
+		.syntax = syntax,
+		.syntax_len = sizeof(syntax)/sizeof(*syntax),
 	};
 
 	Interpreter interpreter {
