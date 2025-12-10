@@ -118,7 +118,7 @@ struct RawFunction {
 struct Value {
 	enum Type {
 		Word,
-		Primative,
+		Primitive,
 		Syntax,
 		Number,
 		RawFunction,
@@ -131,6 +131,37 @@ struct Value {
 		number_t number;
 		function_ptr_t function_ptr;
 	};
+
+	static Value new_word(idx_t word_idx) {
+		return {
+			.type = Word,
+			.word_idx = word_idx,
+		};
+	}
+	static Value new_primitive(idx_t primitive_idx) {
+		return {
+			.type = Primitive,
+			.primitive_idx = primitive_idx,
+		};
+	}
+	static Value new_syntax(idx_t syntax_idx) {
+		return {
+			.type = Syntax,
+			.syntax_idx = syntax_idx,
+		};
+	}
+	static Value new_number(number_t number) {
+		return {
+			.type = Number,
+			.number = number,
+		};
+	}
+	static Value new_function_ptr(function_ptr_t function_ptr) {
+		return {
+			.type = RawFunction,
+			.function_ptr = function_ptr,
+		};
+	}
 };
 
 #ifdef KERNEL
@@ -346,7 +377,7 @@ struct Interpreter {
 
 		const auto primitive_idx = read_primitive_idx();
 		if (has(primitive_idx)) return { {
-			.type = Value::Primative,
+			.type = Value::Primitive,
 			.primitive_idx = get(primitive_idx),
 		} };
 
@@ -377,7 +408,7 @@ struct Interpreter {
 			case Value::Word: {
 				run_word_idx(value.word_idx);
 			} break;
-			case Value::Primative: {
+			case Value::Primitive: {
 				run_primitive_idx(value.primitive_idx);
 			} break;
 			case Value::Syntax: {
@@ -404,7 +435,7 @@ struct Interpreter {
 			case Value::Word: {
 				return compile_word_idx(value.word_idx);
 			} break;
-			case Value::Primative: {
+			case Value::Primitive: {
 				return compile_primitive_idx(value.primitive_idx);
 			} break;
 			case Value::Syntax: {
@@ -432,7 +463,7 @@ struct Interpreter {
 			case Value::Word: {
 				ignore_word_idx(value.word_idx);
 			} break;
-			case Value::Primative: {
+			case Value::Primitive: {
 				ignore_primitive_idx(value.primitive_idx);
 			} break;
 			case Value::Syntax: {
@@ -485,7 +516,7 @@ struct Runner {
 			case Value::Word: {
 				run_word_idx(value.word_idx);
 			} break;
-			case Value::Primative: {
+			case Value::Primitive: {
 				run_primitive_idx(value.primitive_idx);
 			} break;
 			case Value::Syntax: {
@@ -512,7 +543,7 @@ struct Runner {
 			case Value::Word: {
 				ignore_word_idx(value.word_idx);
 			} break;
-			case Value::Primative: {
+			case Value::Primitive: {
 				ignore_primitive_idx(value.primitive_idx);
 			} break;
 			case Value::Syntax: {
