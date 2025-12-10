@@ -16,11 +16,11 @@ void run_number(number_t number, ProgramState &state);
 void run_function_ptr(function_ptr_t function_ptr, ProgramState &state);
 
 void run_word_idx(idx_t word_idx, ProgramState &state) {
-	assert(word_idx < state.words.size());
+	assert(word_idx < length(state.words));
 
 	const auto &word = state.words[word_idx];
-	assert(word.code_pos <= state.code.size());
-	assert(word.code_pos + word.code_len <= state.code.size());
+	assert(word.code_pos <= length(state.code));
+	assert(word.code_pos + word.code_len <= length(state.code));
 
 	Runner runner = {
 		.code = &state.code[word.code_pos],
@@ -40,7 +40,7 @@ void run_primitive_idx(idx_t primitive_idx, ProgramState &state) {
 	primitives.fun(state);
 }
 void run_number(number_t number, ProgramState &state) {
-	state.stack.push_back(number);
+	push(state.stack, number);
 }
 void run_function_ptr(function_ptr_t function_ptr, ProgramState &state) {
 	function_ptr->run(state);
@@ -72,30 +72,30 @@ bool Interpreter::run_next() {
 	} else return false;
 }
 
-std::optional<std::size_t> Interpreter::compile_word_idx(idx_t word_idx) {
-	assert(word_idx < state.words.size());
+maybe_t<size_t> Interpreter::compile_word_idx(idx_t word_idx) {
+	assert(word_idx < length(state.words));
 
-	state.code.push_back({ .type = Value::Word, .word_idx = word_idx });
+	push(state.code, { .type = Value::Word, .word_idx = word_idx });
 	return 1;
 }
-std::optional<std::size_t> Interpreter::compile_primitive_idx(idx_t primitive_idx) {
+maybe_t<size_t> Interpreter::compile_primitive_idx(idx_t primitive_idx) {
 	assert(primitive_idx < state.primitives_len);
 
-	state.code.push_back({ .type = Value::Primative, .primitive_idx = primitive_idx });
+	push(state.code, { .type = Value::Primative, .primitive_idx = primitive_idx });
 	return 1;
 }
-std::optional<std::size_t> Interpreter::compile_syntax_idx(idx_t syntax_idx) {
+maybe_t<size_t> Interpreter::compile_syntax_idx(idx_t syntax_idx) {
 	assert(syntax_idx < state.syntax_len);
 
 	const auto &syntax = state.syntax[syntax_idx];
 	return syntax.compile(*this);
 }
-std::optional<std::size_t> Interpreter::compile_number(number_t number) {
-	state.code.push_back({ .type = Value::Number, .number = number });
+maybe_t<size_t> Interpreter::compile_number(number_t number) {
+	push(state.code, { .type = Value::Number, .number = number });
 	return 1;
 }
 
-std::optional<std::size_t> Interpreter::compile_next() {
+maybe_t<size_t> Interpreter::compile_next() {
 	const auto value = read_value();
 	if (value.has_value()) {
 		return compile_value(value.value());
@@ -175,12 +175,12 @@ void ignore_comment(Interpreter &interpreter) {
 
 const Syntax syntax[] = {
 	{ "(", "", ignore_comment, ignore_comment,
-		[](Interpreter &interpreter) -> std::optional<std::size_t> {
+		[](Interpreter &interpreter) -> maybe_t<size_t> {
 			ignore_comment(interpreter);
 			return 0;
 		}
 	},
 };
-const std::size_t syntax_len = sizeof(syntax)/sizeof(*syntax);
+const size_t syntax_len = sizeof(syntax)/sizeof(*syntax);
 
 }

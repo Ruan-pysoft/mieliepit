@@ -12,10 +12,8 @@ Primitive primitives[] = {
 		should_quit = true;
 	} },
 	{ "+", "some description", [](ProgramState &state) {
-		const number_t a = *state.stack.rbegin();
-		state.stack.pop_back();
-		const number_t b = *state.stack.rbegin();
-		state.stack.pop_back();
+		const number_t a = pop(state.stack);
+		const number_t b = pop(state.stack);
 		const number_t res = {
 			.pos = a.pos + b.pos
 		};
@@ -32,7 +30,7 @@ Primitive primitives[] = {
 		}
 	} },
 	{ "drop", "", [](ProgramState &state) {
-		state.stack.pop_back();
+		pop(state.stack);
 	} },
 	{ "dup", "", [](ProgramState &state) {
 		state.stack.push_back(*state.stack.rbegin());

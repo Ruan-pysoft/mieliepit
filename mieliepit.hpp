@@ -1,10 +1,13 @@
 #pragma once
 
+#ifdef KERNEL
+#else
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <optional>
 #include <vector>
+#endif
 
 namespace mieliepit {
 
@@ -13,9 +16,29 @@ struct Interpreter;
 struct Runner;
 struct RawFunction;
 
+#ifdef KERNEL
+using idx_t = uint32_t;
+static_assert(
+	sizeof(idx_t) == sizeof(size_t),
+	"Expected word size to be 32 bits"
+);
+union number_t {
+	uint32_t pos;
+	int32_t sign;
+};
+static_assert(
+	sizeof(number_t) == sizeof(size_t),
+	"Expected word size to be 32 bits"
+);
+using function_ptr_t = RawFunction *;
+static_assert(
+	sizeof(function_ptr_t) == sizeof(size_t),
+	"Expected word size to be 32 bits"
+);
+#else
 using idx_t = uint64_t;
 static_assert(
-	sizeof(idx_t) == sizeof(std::size_t),
+	sizeof(idx_t) == sizeof(size_t),
 	"Expected word size to be 64 bits"
 );
 union number_t {
@@ -23,14 +46,15 @@ union number_t {
 	int64_t sign;
 };
 static_assert(
-	sizeof(number_t) == sizeof(std::size_t),
+	sizeof(number_t) == sizeof(size_t),
 	"Expected word size to be 64 bits"
 );
 using function_ptr_t = RawFunction *;
 static_assert(
-	sizeof(function_ptr_t) == sizeof(std::size_t),
+	sizeof(function_ptr_t) == sizeof(size_t),
 	"Expected word size to be 64 bits"
 );
+#endif
 
 struct Word {
 	const char *name;
@@ -45,12 +69,39 @@ struct Primitive {
 	void (*fun)(ProgramState&);
 };
 
+#ifdef KERNEL
+template<typename T>
+using maybe_t = Maybe<T>;
+
+template<typename T>
+bool has(const maybe_t<T> &maybe) { return maybe.has; }
+template<typename T>
+bool get(const maybe_t<T> &maybe) { return maybe.value; }
+template<typename T>
+bool get_or(const maybe_t<T> &maybe, T alternative) {
+	if (maybe.has) return maybe.value;
+	else return alternative;
+}
+#else
+template<typename T>
+using maybe_t = std::optional<T>;
+
+template<typename T>
+bool has(const maybe_t<T> &maybe) { return maybe.has_value(); }
+template<typename T>
+bool get(const maybe_t<T> &maybe) { return maybe.value(); }
+template<typename T>
+bool get_or(const maybe_t<T> &maybe, T alternative) {
+	return maybe.value_or(alternative);
+}
+#endif
+
 struct Syntax {
 	const char *name;
 	const char *desc;
 	void (*run)(Interpreter&);
 	void (*ignore)(Interpreter&);
-	std::optional<std::size_t> (*compile)(Interpreter&);
+	maybe_t<size_t> (*compile)(Interpreter&);
 };
 
 struct RawFunction {
@@ -77,23 +128,102 @@ struct Value {
 	};
 };
 
+#ifdef KERNEL
+template<typename T, size_t CAPACITY>
+struct FixedBuffer {
+	size_t len = 0;
+	T buffer[CAPACITY];
+
+	void push(T value) {
+		assert(len < CAPACITY);
+
+		buffer[len++] = value;
+	}
+
+	T pop() {
+		assert(len > 0);
+
+		return buffer[--len];
+	}
+
+	const T &operator[](idx_t idx) const {
+		assert(idx < len);
+
+		return buffer[idx];
+	}
+	T &operator[](idx_t idx) {
+		assert(idx < len);
+
+		return buffer[idx];
+	}
+};
+
+template<typename T, size_t CAPACITY>
+void push(FixedBuffer<T, CAPACITY> &buf, T value) {
+	buf.push(value);
+}
+template<typename T, size_t CAPACITY>
+T pop(FixedBuffer<T, CAPACITY> &buf) {
+	return buf.pop();
+}
+template<typename T, size_t CAPACITY>
+size_t lenght(const FixedBuffer<T, CAPACITY> &buf) {
+	return buf.len;
+}
+#else
+template<typename T>
+void push(std::vector<T> &vec, T value) {
+	vec.push(value);
+}
+template<typename T>
+T pop(std::vector<T> &vec) {
+	return vec.pop();
+}
+template<typename T>
+size_t length(const std::vector<T> &vec) {
+	return vec.size();
+}
+#endif
+
+#ifdef KERNEL
+constexpr size_t STACK_SIZE = 1024;
+using Stack = FixedBuffer<number_t, STACK_SIZE>;
+#else
 using Stack = std::vector<number_t>;
+#endif
+static constexpr const number_t &stack_peek(const Stack &stack, idx_t nth = 0) {
+	return stack[length(stack)-1 - nth];
+}
+
+#ifdef KERNEL
+constexpr size_t CODE_BUFFER_SIZE = 1024;
+using CodeCodeBuffer = FixedBuffer<Value, CODE_BUFFER_SIZE>;
+#else
+using CodeBuffer = std::vector<Value>;
+#endif
+
+#ifdef KERNEL
+constexpr size_t WORDS_SIZE = 1024;
+using Words = FixedBuffer<Word, CODE_BUFFER_SIZE>;
+#else
+using Words = std::vector<Word>;
+#endif
 
 struct ProgramState {
 	Stack stack;
-	std::vector<Value> code;
+	CodeBuffer code;
 	const char *error;
 
-	std::vector<Word> words;
+	Words words;
 	const Primitive *primitives;
-	const std::size_t primitives_len;
+	const size_t primitives_len;
 	const Syntax *syntax;
-	const std::size_t syntax_len;
+	const size_t syntax_len;
 };
 
 struct Interpreter {
 	const char *line = nullptr;
-	std::size_t len = 0;
+	size_t len = 0;
 	enum {
 		Run,
 		Compile,
@@ -101,7 +231,7 @@ struct Interpreter {
 	} action;
 	struct {
 		const char *text;
-		std::size_t len;
+		size_t len;
 	} curr_word;
 	ProgramState &state;
 
@@ -125,12 +255,12 @@ struct Interpreter {
 		curr_word.len = 0;
 	}
 
-	std::optional<idx_t> read_word_idx() {
+	maybe_t<idx_t> read_word_idx() {
 		get_word();
 
 		if (curr_word.len == 0) return {};
 
-		idx_t i = state.words.size();
+		idx_t i = length(state.words);
 		while (i --> 0) {
 			if (strlen(state.words[i].name) != curr_word.len) continue;
 
@@ -142,7 +272,7 @@ struct Interpreter {
 		unget_word();
 		return {};
 	}
-	std::optional<idx_t> read_primitive_idx() {
+	maybe_t<idx_t> read_primitive_idx() {
 		get_word();
 
 		if (curr_word.len == 0) return {};
@@ -159,7 +289,7 @@ struct Interpreter {
 		unget_word();
 		return {};
 	}
-	std::optional<idx_t> read_syntax_idx() {
+	maybe_t<idx_t> read_syntax_idx() {
 		get_word();
 
 		if (curr_word.len == 0) return {};
@@ -176,7 +306,7 @@ struct Interpreter {
 		unget_word();
 		return {};
 	}
-	std::optional<number_t> read_number() {
+	maybe_t<number_t> read_number() {
 		get_word();
 
 		number_t number = {0};
@@ -201,7 +331,7 @@ struct Interpreter {
 
 		return number;
 	}
-	std::optional<Value> read_value() {
+	maybe_t<Value> read_value() {
 		const auto word_idx = read_word_idx();
 		if (word_idx.has_value()) return { {
 			.type = Value::Word,
@@ -257,11 +387,11 @@ struct Interpreter {
 
 	bool run_next();
 
-	std::optional<std::size_t> compile_word_idx(idx_t word_idx);
-	std::optional<std::size_t> compile_primitive_idx(idx_t primitive_idx);
-	std::optional<std::size_t> compile_syntax_idx(idx_t syntax_idx);
-	std::optional<std::size_t> compile_number(number_t number);
-	std::optional<std::size_t> compile_value(Value value) {
+	maybe_t<size_t> compile_word_idx(idx_t word_idx);
+	maybe_t<size_t> compile_primitive_idx(idx_t primitive_idx);
+	maybe_t<size_t> compile_syntax_idx(idx_t syntax_idx);
+	maybe_t<size_t> compile_number(number_t number);
+	maybe_t<size_t> compile_value(Value value) {
 		switch (value.type) {
 			case Value::Word: {
 				return compile_word_idx(value.word_idx);
@@ -282,7 +412,7 @@ struct Interpreter {
 		}
 	}
 
-	std::optional<std::size_t> compile_next();
+	maybe_t<size_t> compile_next();
 
 	void ignore_word_idx(idx_t word_idx);
 	void ignore_primitive_idx(idx_t primitive_idx);
@@ -321,14 +451,14 @@ struct Interpreter {
 
 struct Runner {
 	Value *code = nullptr;
-	std::size_t len = 0;
+	size_t len = 0;
 	enum {
 		Run,
 		Ignore,
 	} action;
 	ProgramState &state;
 
-	std::optional<Value> read_value() {
+	maybe_t<Value> read_value() {
 		if (len == 0) return {};
 		const auto res = *code;
 		++code;
@@ -397,6 +527,6 @@ struct Runner {
 };
 
 extern const Syntax syntax[];
-extern const std::size_t syntax_len;
+extern const size_t syntax_len;
 
 }
