@@ -1,10 +1,14 @@
+#ifdef KERNEL
+#include <assert.h>
+#else
 #include <cassert>
 #include <cstddef>
 #include <cstring>
 #include <optional>
 #include <vector>
+#endif
 
-#include "mieliepit.hpp"
+#include "./mieliepit.hpp"
 
 namespace mieliepit {
 
@@ -66,8 +70,8 @@ void Interpreter::run_number(number_t number) {
 
 bool Interpreter::run_next() {
 	const auto value = read_value();
-	if (value.has_value()) {
-		run_value(value.value());
+	if (has(value)) {
+		run_value(get(value));
 		return true;
 	} else return false;
 }
@@ -97,8 +101,8 @@ maybe_t<size_t> Interpreter::compile_number(number_t number) {
 
 maybe_t<size_t> Interpreter::compile_next() {
 	const auto value = read_value();
-	if (value.has_value()) {
-		return compile_value(value.value());
+	if (has(value)) {
+		return compile_value(get(value));
 	}
 	return {};
 }
@@ -115,8 +119,8 @@ void Interpreter::ignore_number(number_t) { }
 
 bool Interpreter::ignore_next() {
 	const auto value = read_value();
-	if (value.has_value()) {
-		ignore_value(value.value());
+	if (has(value)) {
+		ignore_value(get(value));
 		return true;
 	} return false;
 }
@@ -136,8 +140,8 @@ void Runner::run_function_ptr(function_ptr_t function_ptr) {
 
 bool Runner::run_next() {
 	const auto value = read_value();
-	if (value.has_value()) {
-		run_value(value.value());
+	if (has(value)) {
+		run_value(get(value));
 		return true;
 	} else return false;
 }
@@ -153,8 +157,8 @@ void Runner::ignore_function_ptr(function_ptr_t function_ptr) {
 
 bool Runner::ignore_next() {
 	const auto value = read_value();
-	if (value.has_value()) {
-		ignore_value(value.value());
+	if (has(value)) {
+		ignore_value(get(value));
 		return true;
 	} else return false;
 }

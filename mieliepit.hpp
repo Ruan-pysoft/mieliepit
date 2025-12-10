@@ -1,6 +1,11 @@
 #pragma once
 
 #ifdef KERNEL
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <sdk/util.hpp>
 #else
 #include <cstddef>
 #include <cstdint>
@@ -71,14 +76,14 @@ struct Primitive {
 
 #ifdef KERNEL
 template<typename T>
-using maybe_t = Maybe<T>;
+using maybe_t = sdk::util::Maybe<T>;
 
 template<typename T>
 bool has(const maybe_t<T> &maybe) { return maybe.has; }
 template<typename T>
-bool get(const maybe_t<T> &maybe) { return maybe.value; }
+T get(const maybe_t<T> &maybe) { return maybe.value; }
 template<typename T>
-bool get_or(const maybe_t<T> &maybe, T alternative) {
+T get_or(const maybe_t<T> &maybe, T alternative) {
 	if (maybe.has) return maybe.value;
 	else return alternative;
 }
@@ -89,9 +94,9 @@ using maybe_t = std::optional<T>;
 template<typename T>
 bool has(const maybe_t<T> &maybe) { return maybe.has_value(); }
 template<typename T>
-bool get(const maybe_t<T> &maybe) { return maybe.value(); }
+T get(const maybe_t<T> &maybe) { return maybe.value(); }
 template<typename T>
-bool get_or(const maybe_t<T> &maybe, T alternative) {
+T get_or(const maybe_t<T> &maybe, T alternative) {
 	return maybe.value_or(alternative);
 }
 #endif
@@ -167,7 +172,7 @@ T pop(FixedBuffer<T, CAPACITY> &buf) {
 	return buf.pop();
 }
 template<typename T, size_t CAPACITY>
-size_t lenght(const FixedBuffer<T, CAPACITY> &buf) {
+size_t length(const FixedBuffer<T, CAPACITY> &buf) {
 	return buf.len;
 }
 #else
@@ -197,7 +202,7 @@ static constexpr const number_t &stack_peek(const Stack &stack, idx_t nth = 0) {
 
 #ifdef KERNEL
 constexpr size_t CODE_BUFFER_SIZE = 1024;
-using CodeCodeBuffer = FixedBuffer<Value, CODE_BUFFER_SIZE>;
+using CodeBuffer = FixedBuffer<Value, CODE_BUFFER_SIZE>;
 #else
 using CodeBuffer = std::vector<Value>;
 #endif
@@ -333,27 +338,27 @@ struct Interpreter {
 	}
 	maybe_t<Value> read_value() {
 		const auto word_idx = read_word_idx();
-		if (word_idx.has_value()) return { {
+		if (has(word_idx)) return { {
 			.type = Value::Word,
-			.word_idx = word_idx.value(),
+			.word_idx = get(word_idx),
 		} };
 
 		const auto primitive_idx = read_primitive_idx();
-		if (primitive_idx.has_value()) return { {
+		if (has(primitive_idx)) return { {
 			.type = Value::Primative,
-			.primitive_idx = primitive_idx.value(),
+			.primitive_idx = get(primitive_idx),
 		} };
 
 		const auto syntax_idx = read_syntax_idx();
-		if (syntax_idx.has_value()) return { {
+		if (has(syntax_idx)) return { {
 			.type = Value::Syntax,
-			.syntax_idx = syntax_idx.value(),
+			.syntax_idx = get(syntax_idx),
 		} };
 
 		const auto number = read_number();
-		if (number.has_value()) return { {
+		if (has(number)) return { {
 			.type = Value::Number,
-			.number = number.value(),
+			.number = get(number),
 		} };
 
 		state.error = "Error: undefined word";
@@ -443,7 +448,7 @@ struct Interpreter {
 	bool advance() {
 		switch (action) {
 			case Run: return run_next();
-			case Compile: return compile_next().has_value();
+			case Compile: return has(compile_next());
 			case Ignore: return ignore_next();
 		}
 	}
