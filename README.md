@@ -4,7 +4,7 @@
 
 (idk how the fake English phonetics thingy works, it might be incorrect. The IPA should be accurate though)
 
-A basic [stack-based programming language](), written for [my demo C++ kernel](). I'm moving it into its own separate repository, and allowing it to be compiled as a standalone application, to ease debugging and refactoring, as I was running into troubles with, for example, skipping complicated bits of syntax using the old model, and having to compile it into the kernel was not conducive to either refactoring or easy debugging.
+A basic [stack-based programming language](https://en.wikipedia.org/wiki/Stack-oriented_programming), written for [my demo C++ kernel](https://github.com/Ruan-pysoft/cpp_demo_kernel). I'm moving it into its own separate repository, and allowing it to be compiled as a standalone application, to ease debugging and refactoring, as I was running into troubles with, for example, skipping complicated bits of syntax using the old model, and having to compile it into the kernel was not conducive to either refactoring or easy debugging.
 
 Here I'm only going to create the interpreter / compiler / bytecode runner, with input handling and UI being handled by the kernel.
 
