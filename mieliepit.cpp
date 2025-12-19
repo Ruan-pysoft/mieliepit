@@ -18,10 +18,12 @@ namespace mieliepit {
 
 namespace {
 
+/*** SECTION: Basic runner functions ***/
+
 void run_word_idx(idx_t word_idx, ProgramState &state);
 void run_primitive_idx(idx_t primitive_idx, ProgramState &state);
 void run_number(number_t number, ProgramState &state);
-void run_function_ptr(function_ptr_t function_ptr, ProgramState &state);
+void run_function_ptr(function_ptr_t function_ptr, Runner &runner);
 
 void run_word_idx(idx_t word_idx, ProgramState &state) {
 	assert(word_idx < length(state.words));
@@ -30,14 +32,12 @@ void run_word_idx(idx_t word_idx, ProgramState &state) {
 	assert(word.code_pos <= length(state.code));
 	assert(word.code_pos + word.code_len <= length(state.code));
 
-	Runner runner = {
+	Runner runner = { {
 		.code = &state.code[word.code_pos],
 		.len = word.code_len,
-		.action = Runner::Run,
-		.state = state,
-	};
+	}, state, Runner::Run };
 
-	while (!state.error && runner.len > 0) {
+	while (!state.error && runner.curr.len > 0) {
 		runner.advance();
 	}
 }
@@ -50,11 +50,13 @@ void run_primitive_idx(idx_t primitive_idx, ProgramState &state) {
 void run_number(number_t number, ProgramState &state) {
 	push(state.stack, number);
 }
-void run_function_ptr(function_ptr_t function_ptr, ProgramState &state) {
-	function_ptr->run(state);
+void run_function_ptr(function_ptr_t function_ptr, Runner &runner) {
+	function_ptr->run(runner);
 }
 
 }
+
+/*** SECTION: Interpreter implementation ***/
 
 void Interpreter::run_word_idx(idx_t word_idx) {
 	mieliepit::run_word_idx(word_idx, state);
@@ -129,6 +131,8 @@ bool Interpreter::ignore_next() {
 	} return false;
 }
 
+/*** SECTION: Runner implementation ***/
+
 void Runner::run_word_idx(idx_t word_idx) {
 	mieliepit::run_word_idx(word_idx, state);
 }
@@ -139,7 +143,7 @@ void Runner::run_number(number_t number) {
 	mieliepit::run_number(number, state);
 }
 void Runner::run_function_ptr(function_ptr_t function_ptr) {
-	mieliepit::run_function_ptr(function_ptr, state);
+	mieliepit::run_function_ptr(function_ptr, *this);
 }
 
 bool Runner::run_next() {
@@ -168,6 +172,8 @@ bool Runner::ignore_next() {
 }
 
 namespace {
+
+/*** SECTION: Syntax implementation ***/
 
 void ignore_comment(Interpreter &interpreter) {
 	while (true) {
@@ -565,8 +571,6 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 		} break;
 		case Value::Number: {
-			printf("Pushes the number %u to the stack", get(val).number.pos);
-
 			push(interpreter.state.code, Value::new_number({
 				.pos = reinterpret_cast<uint32_t>(s2)
 			}));
@@ -589,10 +593,268 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 	return length(interpreter.state.code) - start_len;
 }
 
-RawFunction print_raw = { "<internal:print_raw>", [](ProgramState &state) {
+void print_definition(ProgramState &state, idx_t word_idx) {
+	assert(word_idx < length(state.words));
+	const Word &word = state.words[word_idx];
+
+	printf(": %s ( %s )", word.name, word.desc);
+
+	assert(word.code_pos < length(state.code));
+	assert(word.code_pos + word.code_len < length(state.code));
+	for (idx_t i = word.code_pos; i < word.code_pos + word.code_len; ++i) {
+		const auto value = state.code[i];
+		switch (value.type) {
+			case Value::Word: {
+				assert(value.word_idx < length(state.words));
+				printf(" %s", state.words[value.word_idx].name);
+			} break;
+			case Value::Primitive: {
+				assert(value.primitive_idx < state.primitives_len);
+				printf(" %s", state.primitives[value.primitive_idx]);
+			} break;
+			case Value::Syntax: {
+				state.error = "Error: syntax expression shouldn't be present in compiled word";
+				state.error_handled = false;
+			} break;
+			case Value::Number: {
+				printf(" %u", value.number.pos);
+			} break;
+			case Value::RawFunction: {
+				printf(" %s", value.function_ptr->name);
+			} break;
+		}
+	}
+	printf(" ;");
+}
+void interpret_def(Interpreter &interpreter) {
+	interpreter.get_word();
+
+	if (interpreter.curr_word.len == 0) {
+		// TODO:
+		// error_fun("def", "expected following word");
+		interpreter.state.error = "Error: expected following word";
+		interpreter.state.error_handled = false;
+		return;
+	}
+
+	const maybe_t<Value> val = interpreter.read_value();
+	if (!has(val)) {
+		// TODO:
+		// error_fun("def", "Couldn't find specified word");
+		interpreter.state.error = "Error: couldn't find the specified word";
+		interpreter.state.error_handled = false;
+		return;
+	}
+
+	switch (get(val).type) {
+		case Value::Word: {
+			print_definition(interpreter.state, get(val).word_idx);
+		} break;
+		case Value::Primitive: {
+			const auto &primitive = interpreter.state.primitives[get(val).primitive_idx];
+			printf("<built-in primitive `%s`>", primitive.name);
+		} break;
+		case Value::Syntax: {
+			const auto &syntax = interpreter.state.syntax[get(val).syntax_idx];
+			printf("<built-in syntax expression `%s`>", syntax.name);
+		} break;
+		case Value::Number: {
+			printf("<literal %u>", get(val).number.pos);
+		} break;
+		case Value::RawFunction: {
+			// TODO: some sort of error (maybe?)
+			assert(false && "raw function shouldn't be possible here");
+		} break;
+	}
+}
+
+void ignore_def(Interpreter &interpreter) {
+	interpreter.get_word();
+
+	if (interpreter.curr_word.len == 0) {
+		// TODO:
+		// error_fun("def", "expected following word");
+		interpreter.state.error = "Error: expected following word";
+		interpreter.state.error_handled = false;
+		return;
+	}
+}
+
+extern RawFunction print_definition_rf;
+maybe_t<size_t> compile_def(Interpreter &interpreter) {
+	interpreter.get_word();
+
+	const size_t start_len = length(interpreter.state.code);
+
+	if (interpreter.curr_word.len == 0) {
+		// TODO:
+		// error_fun("def", "expected following word");
+		interpreter.state.error = "Error: expected following word";
+		interpreter.state.error_handled = false;
+		return {};
+	}
+
+	const maybe_t<Value> val = interpreter.read_value();
+	if (!has(val)) {
+		// TODO:
+		// error_fun("def", "Couldn't find specified word");
+		interpreter.state.error = "Error: couldn't find the specified word";
+		interpreter.state.error_handled = false;
+		return {};
+	}
+
+	idx_t print_idx = 0;
+
+	{
+		for (idx_t i = 0; i < interpreter.state.primitives_len; ++i) {
+			if (strcmp(interpreter.state.primitives[i].name, "print") == 0) {
+				print_idx = i;
+			}
+		}
+	}
+
+	const char *s_end = "`>";
+	const char *s_pri = "<built-in primitive `";
+	const char *s_syn = "<built-in syntax expression `";
+	const char *s_lit = "<literal ";
+
+	switch (get(val).type) {
+		case Value::Word: {
+			// TODO:
+			// check_code_len("def", ???);
+
+			push(interpreter.state.code, Value::new_number({
+				.pos = get(val).word_idx
+			}));
+			push(interpreter.state.code, Value::new_function_ptr(&print_definition_rf));
+		} break;
+		case Value::Primitive: {
+			// TODO:
+			// check_code_len("def", ???);
+			const auto &primitive = interpreter.state.primitives[get(val).primitive_idx];
+
+			push(interpreter.state.code, Value::new_number({
+				.pos = reinterpret_cast<uint32_t>(s_pri)
+			}));
+			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
+
+			push(interpreter.state.code, Value::new_number({
+				.pos = reinterpret_cast<uint32_t>(primitive.name)
+			}));
+			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
+
+			push(interpreter.state.code, Value::new_number({
+				.pos = reinterpret_cast<uint32_t>(s_end)
+			}));
+			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
+		} break;
+		case Value::Syntax: {
+			// TODO:
+			// check_code_len("def", ???);
+
+			const auto &syntax = interpreter.state.syntax[get(val).syntax_idx];
+
+			push(interpreter.state.code, Value::new_number({
+				.pos = reinterpret_cast<uint32_t>(s_syn)
+			}));
+			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
+
+			push(interpreter.state.code, Value::new_number({
+				.pos = reinterpret_cast<uint32_t>(syntax.name)
+			}));
+			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
+
+			push(interpreter.state.code, Value::new_number({
+				.pos = reinterpret_cast<uint32_t>(s_end)
+			}));
+			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
+		} break;
+		case Value::Number: {
+			push(interpreter.state.code, Value::new_number({
+				.pos = reinterpret_cast<uint32_t>(s_lit)
+			}));
+			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
+
+			push(interpreter.state.code, Value::new_number(get(val).number));
+			push(interpreter.state.code, Value::new_primitive(print_idx));
+
+			push(interpreter.state.code, Value::new_number({
+				.pos = reinterpret_cast<uint32_t>(s_end)
+			}));
+			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
+		} break;
+		case Value::RawFunction: {
+			// TODO: some sort of error (maybe?)
+			assert(false && "raw function shouldn't be possible here");
+		} break;
+	}
+
+	return length(interpreter.state.code) - start_len;
+}
+
+extern RawFunction recurse;
+maybe_t<size_t> compile_rec(Interpreter &interpreter) {
+	// TODO:
+	// check_code_len("rec", 1);
+
+	push(interpreter.state.code, Value::new_function_ptr(&recurse));
+
+	return 1;
+}
+
+extern RawFunction return_rf;
+maybe_t<size_t> compile_ret(Interpreter &interpreter) {
+	// TODO:
+	// check_code_len("rec", 1);
+
+	push(interpreter.state.code, Value::new_function_ptr(&return_rf));
+
+	return 1;
+}
+
+void interpret_skip(Interpreter &interpreter) {
+	// TODO:
+	// check_stack_len_ge("?", 1);
+
+	if (pop(interpreter.state.stack).pos == 0) {
+		assert(interpreter.ignore_next()); // TODO: some sort of error or something?
+	} else {
+		assert(interpreter.run_next()); // TODO: some sort of error or something?
+	}
+}
+
+void ignore_skip(Interpreter &interpreter) {
+	assert(interpreter.ignore_next()); // TODO: some sort of error or something?
+}
+
+extern RawFunction skip;
+maybe_t<size_t> compile_skip(Interpreter &interpreter) {
+	// TODO:
+	// check_code_len ...
+
+	push(interpreter.state.code, Value::new_number({ .pos = 0 }));
+	Value &skip_len = interpreter.state.code[length(interpreter.state.code)-1];
+
+	push(interpreter.state.code, Value::new_function_ptr(&skip));
+
+	const auto next_len = interpreter.compile_next();
+	if (has(next_len)) {
+		skip_len.number.pos = get(next_len);
+
+		return get(next_len)+2;
+	} else {
+		assert(false); // TODO: some sort of error or something?
+
+		return 2;
+	}
+}
+
+/*** SECTION: Raw function values ***/
+
+RawFunction print_raw = { "<internal:print_raw>", [](Runner &runner) {
 	// TODO:
 	// check_stack_len_ge("<internal:print_raw>", 1);
-	const char *str = reinterpret_cast<const char*>(pop(state.stack).pos);
+	const char *str = reinterpret_cast<const char*>(pop(runner.state.stack).pos);
 	#ifdef KERNEL
 	term::writestring(str);
 	#else
@@ -600,16 +862,40 @@ RawFunction print_raw = { "<internal:print_raw>", [](ProgramState &state) {
 	#endif
 } };
 
+RawFunction print_definition_rf = { "<internal:print_definition>", [](Runner &runner) {
+	// TODO:
+	// check_stack_len_ge("<internal:print_definition>", 1);
+	const idx_t word_idx = pop(runner.state.stack).pos;
+	print_definition(runner.state, word_idx);
+} };
+
+RawFunction recurse = { "rec", [](Runner &runner) {
+	runner.curr = runner.initial;
+} };
+
+RawFunction return_rf = { "ret", [](Runner &runner) {
+	runner.curr.code += runner.curr.len;
+	runner.curr.len = 0;
+} };
+
+RawFunction skip = { "?", [](Runner &runner) {
+	// TODO:
+	// check_stack_len_ge("?", 2);
+
+	const size_t skip_len = pop(runner.state.stack).pos;
+
+	if (pop(runner.state.stack).pos == 0) {
+		assert(skip_len >= runner.curr.len);
+		runner.curr.code += skip_len;
+		runner.curr.len -= skip_len;
+	}
+} };
+
 }
 
-const Syntax syntax[] = {
-	{ "(", "", ignore_comment, ignore_comment,
-		[](Interpreter &interpreter) -> maybe_t<size_t> {
-			ignore_comment(interpreter);
-			return 0;
-		}
-	},
+/*** SECTION: Syntax Array ***/
 
+const Syntax syntax[] = {
 	/* VALUES */
 	{ "\"", "-- ... n ; pushes a string to the top of the stack (data then length)",
 		interpret_string, ignore_string, compile_string
@@ -625,6 +911,42 @@ const Syntax syntax[] = {
 	{ "help", "-- ; prints help text for the next word",
 		interpret_help, ignore_help, compile_help,
 	},
+	{ "def", "-- ; prints the definition of a given word",
+		interpret_def, ignore_def, compile_def,
+	},
+
+	/* INTERNALS / SYNTAX */
+	{ "(", "-- ; begins a comment", ignore_comment, ignore_comment,
+		[](Interpreter &interpreter) -> maybe_t<size_t> {
+			ignore_comment(interpreter);
+			return 0;
+		}
+	},
+	{ "rec", "-- ; recurses (runs the current word from the start)",
+		[](Interpreter &interpreter) {
+			// TODO:
+			// error_fun("rec", "rec is only valid when defining a word (inside : ; )");
+			interpreter.state.error = "rec is only valid when defining a word";
+			interpreter.state.error_handled = false;
+		}, [](Interpreter&) {}, compile_rec,
+	},
+	{ "ret", "-- ; returns (exits the current word early)",
+		[](Interpreter &interpreter) {
+			// TODO:
+			// error_fun("ret", "ret is only valid when defining a word (inside : ; )");
+			interpreter.state.error = "ret is only valid when defining a word";
+			interpreter.state.error_handled = false;
+		}, [](Interpreter&) {}, compile_ret,
+	},
+	{ "?", "a -- ; only executes the next word if the stack top is nonzero",
+		interpret_skip, ignore_skip, compile_skip,
+	},
+	/*{ "rep_and", "n -- ??? n ; repeat the next word n times, and push n to the stack",
+		interpret_rep_and, ignore_rep_and, compile_rep_and,
+	},
+	{ "rep", "n -- ??? ; repeat the next word n times",
+		interpret_rep, ignore_rep, compile_rep,
+	},*/
 };
 const size_t syntax_len = sizeof(syntax)/sizeof(*syntax);
 

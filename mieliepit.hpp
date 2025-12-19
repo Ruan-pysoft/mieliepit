@@ -111,7 +111,7 @@ struct Syntax {
 
 struct RawFunction {
 	const char *name;
-	void (*run)(ProgramState&);
+	void (*run)(Runner&);
 	void (*ignore)(Runner&) = nullptr;
 };
 
@@ -491,19 +491,27 @@ struct Interpreter {
 };
 
 struct Runner {
-	Value *code = nullptr;
-	size_t len = 0;
-	enum {
+	struct CodePos {
+		Value *code = nullptr;
+		size_t len = 0;
+	};
+	CodePos initial;
+	CodePos curr;
+
+	enum Action {
 		Run,
 		Ignore,
 	} action;
 	ProgramState &state;
 
+	Runner(CodePos at, ProgramState &state, Action action = Run)
+	: initial(at), curr(at), action(action), state(state) { }
+
 	maybe_t<Value> read_value() {
-		if (len == 0) return {};
-		const auto res = *code;
-		++code;
-		--len;
+		if (curr.len == 0) return {};
+		const auto res = *curr.code;
+		++curr.code;
+		--curr.len;
 		return res;
 	}
 
