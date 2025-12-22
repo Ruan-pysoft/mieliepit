@@ -965,7 +965,19 @@ void interpret_word_def(Interpreter &interpreter) {
 			break;
 		}
 
-		code_len += interpreter.compile_next().get();
+		const auto compiled_len = interpreter.compile_next();
+		if (has(compiled_len)) {
+			code_len += get(compiled_len);
+		} else {
+			for (size_t i = 0; i < code_len; ++i) {
+				pop(interpreter.state.code);
+			}
+
+			// TODO: Some sort of a proper error
+			interpreter.state.error = "Error: undefined word";
+			interpreter.state.error_handled = false;
+			return;
+		}
 	}
 
 	interpreter.state.define_word(name, name_len, desc, desc_len, code_start, code_len);
