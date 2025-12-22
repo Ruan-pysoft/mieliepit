@@ -241,24 +241,49 @@ using CodeBuffer = FixedBuffer<Value, CODE_BUFFER_SIZE>;
 using CodeBuffer = std::vector<Value>;
 #endif
 
-#ifdef KERNEL
 constexpr size_t WORDS_SIZE = 1024;
+
+template<typename T, typename U>
+using pair =
+#ifdef KERNEL
+	sdk::util::Pair<T, U>;
+#else
+	std::pair<T, U>;
+#endif
+
+template<size_t SIZE>
+using raw_char_array = char[SIZE];
+
+constexpr size_t WORD_NAMES_BUF_SIZE = WORDS_SIZE * 4;
+using WordNamesBuf = pair<raw_char_array<WORD_NAMES_BUF_SIZE>*, size_t>; // buf + len
+
+constexpr size_t WORD_DESCS_BUF_SIZE = WORDS_SIZE * 64;
+using WordDescsBuf = pair<raw_char_array<WORD_DESCS_BUF_SIZE>*, size_t>; // buf + len
+
+#ifdef KERNEL
 using Words = FixedBuffer<Word, CODE_BUFFER_SIZE>;
 #else
 using Words = std::vector<Word>;
 #endif
 
 struct ProgramState {
-	Stack stack;
-	CodeBuffer code;
-	const char *error;
-	bool error_handled;
+	Stack stack {};
+	CodeBuffer code {};
+	WordNamesBuf word_names_buf { nullptr, 0 };
+	WordDescsBuf word_descs_buf { nullptr, 0 };
+	const char *error = nullptr;
+	bool error_handled = false;
 
-	Words words;
+	Words words {};
 	const Primitive *primitives;
 	size_t primitives_len;
 	const Syntax *syntax;
 	size_t syntax_len;
+
+	ProgramState(const Primitive *primitives, size_t primitives_len, const Syntax *syntax, size_t syntax_len);
+	~ProgramState();
+
+	void define_word(const char *name, size_t name_len, const char *desc, size_t desc_len, idx_t code_pos, size_t code_len);
 };
 
 struct Interpreter {

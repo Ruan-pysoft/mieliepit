@@ -1,12 +1,14 @@
 #ifdef KERNEL
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "vga.hpp"
 #else
 #include <cassert>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <vector>
@@ -15,6 +17,46 @@
 #include "./mieliepit.hpp"
 
 namespace mieliepit {
+
+ProgramState::ProgramState(const Primitive *primitives, size_t primitives_len, const Syntax *syntax, size_t syntax_len)
+: primitives(primitives), primitives_len(primitives_len), syntax(syntax), syntax_len(syntax_len)
+{
+	word_names_buf.first = (char(*)[WORD_NAMES_BUF_SIZE])malloc(sizeof(*word_names_buf.first));
+	word_descs_buf.first = (char(*)[WORD_DESCS_BUF_SIZE])malloc(sizeof(*word_descs_buf.first));
+}
+ProgramState::~ProgramState() {
+	free(word_names_buf.first);
+	free(word_descs_buf.first);
+}
+
+void ProgramState::define_word(const char *name, size_t name_len, const char *desc, size_t desc_len, idx_t code_pos, size_t code_len) {
+	// TODO: proper errors
+	assert(word_names_buf.second + name_len + 1 <= WORD_NAMES_BUF_SIZE);
+	assert(word_descs_buf.second + desc_len + 1 <= WORD_DESCS_BUF_SIZE);
+
+	for (idx_t i = 0; i < name_len; ++i) {
+		(*word_names_buf.first)[word_names_buf.second + i] = name[i];
+	}
+	(*word_names_buf.first)[word_names_buf.second + name_len] = 0;
+	const char *stored_name = &(*word_names_buf.first)[word_names_buf.second];
+	word_names_buf.second += name_len + 1;
+
+	for (idx_t i = 0; i < desc_len; ++i) {
+		(*word_descs_buf.first)[word_descs_buf.second + i] = desc[i];
+	}
+	(*word_descs_buf.first)[word_descs_buf.second + desc_len] = 0;
+	const char *stored_desc = &(*word_descs_buf.first)[word_descs_buf.second];
+	word_descs_buf.second += desc_len + 1;
+
+	Word word = {
+		.name = stored_name,
+		.desc = stored_desc,
+		.code_pos = code_pos,
+		.code_len = code_len,
+	};
+
+	push(words, word);
+}
 
 namespace {
 
@@ -599,8 +641,8 @@ void print_definition(ProgramState &state, idx_t word_idx) {
 
 	printf(": %s ( %s )", word.name, word.desc);
 
-	assert(word.code_pos < length(state.code));
-	assert(word.code_pos + word.code_len < length(state.code));
+	assert(word.code_pos <= length(state.code));
+	assert(word.code_pos + word.code_len <= length(state.code));
 	for (idx_t i = word.code_pos; i < word.code_pos + word.code_len; ++i) {
 		const auto value = state.code[i];
 		switch (value.type) {
