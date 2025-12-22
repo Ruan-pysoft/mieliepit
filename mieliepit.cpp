@@ -891,6 +891,103 @@ maybe_t<size_t> compile_skip(Interpreter &interpreter) {
 	}
 }
 
+void interpret_word_def(Interpreter &interpreter) {
+	idx_t code_start = length(interpreter.state.code);
+	size_t code_len = 0;
+
+	const char *name = nullptr;
+	size_t name_len = 0;
+	const char *desc = nullptr;
+	size_t desc_len = 0;
+
+	interpreter.get_word();
+	if (interpreter.curr_word.len == 0) {
+		// TODO:
+		// error_fun(":", "expected word name");
+		interpreter.state.error = "Error: expected word name";
+		interpreter.state.error_handled = false;
+		return;
+	} else {
+		name = interpreter.curr_word.text;
+		name_len = interpreter.curr_word.len;
+		interpreter.curr_word.handled = true;
+	}
+
+	interpreter.get_word();
+	if (interpreter.curr_word.len == 1 && interpreter.curr_word.text[0] == '(') {
+		interpreter.curr_word.handled = true;
+
+		interpreter.get_word();
+
+		if (interpreter.curr_word.len == 0) {
+			// TODO:
+			// error_fun(":", "expected matching ) for start of description");
+			interpreter.state.error = "Error: expected matching ) for start of description";
+			interpreter.state.error_handled = false;
+			return;
+		} else {
+			desc = interpreter.curr_word.text;
+			interpreter.curr_word.handled = true;
+		}
+
+		while (true) {
+			assert(interpreter.curr_word.len != 0);
+			desc_len = interpreter.curr_word.text + interpreter.curr_word.len - desc;
+
+			interpreter.get_word();
+
+			if (interpreter.curr_word.len == 1 && interpreter.curr_word.text[0] == ')') {
+				interpreter.curr_word.handled = true;
+				break;
+			} else if (interpreter.curr_word.len == 1 && interpreter.curr_word.text[0] == '(') {
+				assert(interpreter.ignore_next()); // skip embedded comments
+			} else if (interpreter.curr_word.len == 0) {
+				// TODO:
+				// error_fun(":", "expected matching ) for start of description");
+				interpreter.state.error = "Error: expected matching ) for start of description";
+				interpreter.state.error_handled = false;
+				return;
+			}
+
+			interpreter.curr_word.handled = true;
+		}
+	}
+
+	while (true) {
+		interpreter.get_word();
+
+		if (interpreter.curr_word.len == 1 && interpreter.curr_word.text[0] == ';') {
+			interpreter.curr_word.handled = true;
+			break;
+		} else if (interpreter.curr_word.len == 0) {
+			interpreter.state.error = "Error: unterminated word definition";
+			interpreter.state.error_handled = false;
+			break;
+		}
+
+		code_len += interpreter.compile_next().get();
+	}
+
+	interpreter.state.define_word(name, name_len, desc, desc_len, code_start, code_len);
+}
+
+void ignore_word_def(Interpreter &interpreter) {
+	while (true) {
+		interpreter.get_word();
+
+		if (interpreter.curr_word.len == 1 && interpreter.curr_word.text[0] == ';') {
+			interpreter.curr_word.handled = true;
+			break;
+		} else if (interpreter.curr_word.len == 0) {
+			interpreter.state.error = "Error: unterminated word definition";
+			interpreter.state.error_handled = false;
+			break;
+		}
+
+		interpreter.ignore_next();
+	}
+}
+
 /*** SECTION: Raw function values ***/
 
 RawFunction print_raw = { "<internal:print_raw>", [](Runner &runner) {
@@ -927,7 +1024,7 @@ RawFunction skip = { "?", [](Runner &runner) {
 	const size_t skip_len = pop(runner.state.stack).pos;
 
 	if (pop(runner.state.stack).pos == 0) {
-		assert(skip_len >= runner.curr.len);
+		assert(skip_len <= runner.curr.len);
 		runner.curr.code += skip_len;
 		runner.curr.len -= skip_len;
 	}
@@ -982,6 +1079,17 @@ const Syntax syntax[] = {
 	},
 	{ "?", "a -- ; only executes the next word if the stack top is nonzero",
 		interpret_skip, ignore_skip, compile_skip,
+	},
+	{ ":", "-- ; begins a user-supplied word definition",
+		interpret_word_def, ignore_word_def,
+		[] (Interpreter &interpreter) -> maybe_t<size_t> {
+			// TODO:
+			// error_fun(":", "new words may only be defined while interpreting a line");
+			interpreter.state.error = ": is not valid inside a word definition";
+			interpreter.state.error_handled = false;
+
+			return {};
+		},
 	},
 	/*{ "rep_and", "n -- ??? n ; repeat the next word n times, and push n to the stack",
 		interpret_rep_and, ignore_rep_and, compile_rep_and,
