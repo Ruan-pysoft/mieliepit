@@ -501,21 +501,21 @@ const Primitive primitives[PW_COUNT] = {
 	// TODO: sleep functions perhaps, clearing the keyboard buffer when done? Essentially ignoring all user input while sleeping
 
 	/* DOCUMENTATION / HELP / INSPECTION */
-	{ "syntax", "-- ; prints a list of all available syntax items", [](pstate_t &state) {
+	[PW_Syntax] = { "syntax", "-- ; prints a list of all available syntax items", [](pstate_t &state) {
 		for (idx_t i = 0; i < SC_COUNT; ++i) {
 			if (i) writechar(' ');
 			writestring(state.syntax[i].name);
 		}
 		writechar('\n');
 	} },
-	{ "primitives", "-- ; prints a list of all available primitive words", [](pstate_t &state) {
+	[PW_Primitives] = { "primitives", "-- ; prints a list of all available primitive words", [](pstate_t &state) {
 		for (idx_t i = 0; i < state.primitives_len; ++i) {
 			if (i) writechar(' ');
 			writestring(state.primitives[i].name);
 		}
 		writechar('\n');
 	} },
-	{ "words", "-- ; prints a list of all user-defined words", [](pstate_t &state) {
+	[PW_Words] = { "words", "-- ; prints a list of all user-defined words", [](pstate_t &state) {
 		size_t i = length(state.words);
 		while (i --> 0) {
 			writestring(state.words[i].name);
@@ -523,7 +523,7 @@ const Primitive primitives[PW_COUNT] = {
 		}
 		writechar('\n');
 	} },
-	{ "guide", "-- ; prints usage guide for the mieliepit interpreter", guide_primitive_fn },
+	[PW_Guide] = { "guide", "-- ; prints usage guide for the mieliepit interpreter", guide_primitive_fn },
 };
 
 #undef error_fun
