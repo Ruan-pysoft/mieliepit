@@ -552,7 +552,7 @@ void ignore_comment(Interpreter &interpreter) {
 			break;
 		}
 
-		interpreter.ignore_next();
+		interpreter.curr_word.handled = true;
 	}
 }
 
