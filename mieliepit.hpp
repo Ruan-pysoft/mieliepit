@@ -127,13 +127,13 @@ struct Value {
 		uint64_t raw_value;
 		idx_t word_idx;
 		idx_t primitive_idx;
-		idx_t syntax_idx;
+idx_t syntax_idx;
 		number_t number;
 		function_ptr_t function_ptr;
 	};
 
 	static Value new_word(idx_t word_idx) {
-		return {
+return {
 			.type = Word,
 			.word_idx = word_idx,
 		};
@@ -157,7 +157,7 @@ struct Value {
 		};
 	}
 	static Value new_function_ptr(function_ptr_t function_ptr) {
-		return {
+return {
 			.type = RawFunction,
 			.function_ptr = function_ptr,
 		};
@@ -217,7 +217,7 @@ T pop(std::vector<T> &vec) {
 }
 template<typename T>
 size_t length(const std::vector<T> &vec) {
-	return vec.size();
+return vec.size();
 }
 #endif
 
@@ -271,7 +271,7 @@ struct ProgramState {
 	CodeBuffer code {};
 	WordNamesBuf word_names_buf { nullptr, 0 };
 	WordDescsBuf word_descs_buf { nullptr, 0 };
-	const char *error = nullptr;
+const char *error = nullptr;
 	bool error_handled = false;
 
 	Words words {};
@@ -289,7 +289,7 @@ struct ProgramState {
 struct Interpreter {
 	const char *line = nullptr;
 	size_t len = 0;
-	enum {
+enum {
 		Run,
 		Compile,
 		Ignore,
@@ -334,7 +334,7 @@ struct Interpreter {
 		}
 		return {};
 	}
-	maybe_t<idx_t> read_primitive_idx() {
+maybe_t<idx_t> read_primitive_idx() {
 		get_word();
 
 		if (curr_word.len == 0) return {};
@@ -602,7 +602,76 @@ struct Runner {
 	}
 };
 
-extern const Syntax syntax[];
-extern const size_t syntax_len;
+enum PrimitiveWords {
+	PW_ShowStack,
+	PW_StackLen,
+	PW_Dup,
+	PW_Swap,
+	PW_Rot,
+	PW_Unrot,
+	PW_Rev,
+	PW_Drop,
+	PW_RevN,
+	PW_Nth,
+
+	PW_Inc,
+	PW_Dec,
+	PW_Add,
+	PW_Mul,
+	PW_Div,
+
+	PW_Shl,
+	PW_Shr,
+	PW_Or,
+	PW_And,
+	PW_Xor,
+	PW_Not,
+	PW_Eq,
+	PW_Lt,
+
+	PW_True,
+	PW_False,
+
+	PW_Print,
+	PW_Pstr,
+
+	PW_PrintString,
+
+	PW_Exit,
+	PW_Quit,
+
+	PW_Syntax,
+	PW_Primitives,
+	PW_Words,
+	PW_Guide,
+
+	PW_COUNT
+};
+
+extern void quit_primitive_fn(ProgramState&); // supplied by consumer
+extern const char *guide_text; // supplied by library
+extern void guide_primitive_fn(ProgramState&); // supplied by consumer
+extern const Primitive primitives[PW_COUNT];
+
+enum SyntaxConstructions {
+	SC_String,
+	SC_Hex,
+	SC_ShortStr,
+
+	SC_Help,
+	SC_Def,
+
+	SC_Comment,
+	SC_Rec,
+	SC_Ret,
+	SC_Skip,
+	SC_WordDef,
+	SC_RepAnd,
+	SC_Rep,
+
+	SC_COUNT
+};
+
+extern const Syntax syntax[SC_COUNT];
 
 }

@@ -213,6 +213,280 @@ bool Runner::ignore_next() {
 	} else return false;
 }
 
+/*** SECTION: Primitives Array ***/
+
+const char *guide_text =
+	"Mieliepit is a stack-based programming language.\n"
+	"It is operated by entering a sequence of space-seperated words into the prompt.\n"
+	"Data consists of 32-bit integers stored on a stack. You can enter a single period ( . ) into the prompt at any time to view the stack.\n"
+	"Comments are formed with parentheses: ( this is a comment ) . Remember to leave spaces around each parenthesis!\n"
+	"There are two kinds of words: Primitives, which perform some operation, and numbers, which pushes a number to the stack.\n"
+	"To get a list of available primitives, enter `primitives` into the prompt.\n"
+	"To get more information on a given primitive, enter `help` followed by its name. Try `help help` or `help guide`.\n"
+	"A simple hello world program is `' hell pstr ' o pstr 32 pstr ' worl pstr ' d! pstr`. See if you can figure out how it works.\n"
+	"To get a list of available words, enter `words` into the prompt.\n"
+	"To see what a word was compiled into, enter `def` followed by its name. Try `def neg`.\n"
+	"To define your own word, start with `:`, followed by its name, then some documentation in a comment, then its code, ending off with `;`.\n"
+	"An example word definition would be : test ( this is an example ) ' test pstr ; . See if you can define your own plus function using `-` and `neg`.\n"
+;
+
+#define error(msg) do { \
+		state.error = msg; \
+		state.error_handled = false; \
+		return; \
+	} while (0)
+#define error_fun(fun, msg) error("Error in `" fun "`: " msg)
+#define check_stack_len_lt(fun, expr) if (length(state.stack) >= (expr)) error_fun(fun, "stack length should be < " #expr)
+#define check_stack_len_ge(fun, expr) if (length(state.stack) < (expr)) error_fun(fun, "stack length should be >= " #expr)
+#define check_stack_cap(fun, expr) if (length(state.stack) + (expr) >= STACK_SIZE) error_fun(fun, "stack capacity should be at least " #expr)
+#define check_code_len(fun, len) if (length(state.code) + (len) > CODE_BUFFER_SIZE) error_fun(fun, "not enough space to generate code for user word")
+using pstate_t = ProgramState;
+const Primitive primitives[PW_COUNT] = {
+	/* STACK OPERATIONS */
+	[PW_ShowStack] = { ".", "-- ; shows the top 16 elements of the stack", [](pstate_t &state) {
+		if (length(state.stack) == 0) { puts("empty."); return; }
+
+		const size_t amt = length(state.stack) < 16
+			? length(state.stack)
+			: 16;
+		if (length(state.stack) > 16) {
+			term::writestring("... ");
+		}
+		size_t i = amt;
+		while (i --> 0) {
+			printf("%d ", stack_peek(state.stack, i));
+		}
+		putchar('\n');
+	} },
+	[PW_StackLen] = { "stack_len", "-- a ; pushes length of stack", [](pstate_t &state) {
+		check_stack_cap("stack_len", 1);
+		push(state.stack, {
+			.pos = length(state.stack)
+		});
+	} },
+	[PW_Dup] = { "dup", "a -- a a", [](pstate_t &state) {
+		check_stack_len_ge("dup", 1);
+		check_stack_cap("dup", 1);
+		push(state.stack, stack_peek(state.stack));
+	} },
+	[PW_Swap] = { "swap", "a b -- b a", [](pstate_t &state) {
+		check_stack_len_ge("swap", 2);
+		const number_t top = pop(state.stack);
+		const number_t under_top = pop(state.stack);
+		push(state.stack, top);
+		push(state.stack, under_top);
+	} },
+	[PW_Rot] = { "rot", "a b c -- b c a", [](pstate_t &state) {
+		check_stack_len_ge("rot", 3);
+		const number_t c = pop(state.stack);
+		const number_t b = pop(state.stack);
+		const number_t a = pop(state.stack);
+		push(state.stack, b);
+		push(state.stack, c);
+		push(state.stack, a);
+	} },
+	[PW_Unrot] = { "unrot", "a b c -- c a b", [](pstate_t &state) {
+		check_stack_len_ge("rot", 3);
+		const number_t c = pop(state.stack);
+		const number_t b = pop(state.stack);
+		const number_t a = pop(state.stack);
+		push(state.stack, c);
+		push(state.stack, a);
+		push(state.stack, b);
+	} },
+	[PW_Rev] = { "rev", "a b c -- c b a", [](pstate_t &state) {
+		check_stack_len_ge("rev", 3);
+		const number_t c = pop(state.stack);
+		const number_t b = pop(state.stack);
+		const number_t a = pop(state.stack);
+		push(state.stack, c);
+		push(state.stack, b);
+		push(state.stack, a);
+	} },
+	[PW_Drop] = { "drop", "a --", [](pstate_t &state) {
+		check_stack_len_ge("drop", 1);
+		pop(state.stack);
+	} },
+	[PW_RevN] = { "rev_n", "... n -- ... ; reverse the top n elements", [](pstate_t &state) {
+		check_stack_len_ge("rev_n", 1);
+		const uint32_t n = pop(state.stack).pos;
+		check_stack_len_ge("rot_n", n);
+		for (size_t i = 0; i < n/2; ++i) {
+			const size_t fst_ix = i;
+			const size_t scd_ix = n-i-1;
+			const number_t tmp = stack_peek(state.stack, fst_ix);
+			stack_peek(state.stack, fst_ix) = stack_peek(state.stack, scd_ix);
+			stack_peek(state.stack, scd_ix) = tmp;
+		}
+	} },
+	[PW_Nth] = { "nth", "... n -- ... x ; dup the nth element down to the top", [](pstate_t &state) {
+		check_stack_len_ge("nth", 1);
+		const uint32_t n = pop(state.stack).pos;
+		check_stack_len_ge("nth", n);
+		if (n == 0) {
+			error_fun("nth", "n must be nonzero");
+		}
+		push(state.stack, stack_peek(state.stack, n-1));
+	} },
+
+	/* ARYTHMETIC OPERATIONS */
+	[PW_Inc] = { "inc", "a -- a+1", [](pstate_t &state) {
+		check_stack_len_ge("inc", 1);
+		++stack_peek(state.stack).pos;
+	} },
+	[PW_Dec] = { "dec", "a -- a-1", [](pstate_t &state) {
+		check_stack_len_ge("dec", 1);
+		--stack_peek(state.stack).pos;
+	} },
+	[PW_Add] = { "+", "a b -- a+b", [](pstate_t &state) {
+		check_stack_len_ge("+", 2);
+		push(state.stack, {
+			.pos = pop(state.stack).pos + pop(state.stack).pos,
+		});
+	} },
+	[PW_Mul] = { "*", "a b -- a*b", [](pstate_t &state) {
+		check_stack_len_ge("*", 2);
+		push(state.stack, {
+			.sign = pop(state.stack).sign * pop(state.stack).sign,
+		});
+	} },
+	[PW_Div] = { "/", "a b -- a/b", [](pstate_t &state) {
+		check_stack_len_ge("/", 2);
+		const number_t b = pop(state.stack);
+		const number_t a = pop(state.stack);
+		push(state.stack, {
+			.sign = a.sign / b.sign,
+		});
+	} },
+
+	/* BITWISE OPERATIONS */
+	[PW_Shl] = { "shl", "a b -- a<<b", [](pstate_t &state) {
+		check_stack_len_ge("shl", 2);
+		const uint32_t top = pop(state.stack).pos;
+		const uint32_t under_top = pop(state.stack).pos;
+		if (top >= 32) {
+			push(state.stack, {0});
+		} else {
+			push(state.stack, { .pos = under_top << top });
+		}
+	} },
+	[PW_Shr] = { "shr", "a b -- a>>b", [](pstate_t &state) {
+		check_stack_len_ge("shr", 2);
+		const uint32_t top = pop(state.stack).pos;
+		const uint32_t under_top = pop(state.stack).pos;
+		if (top >= 32) {
+			push(state.stack, {0});
+		} else {
+			push(state.stack, { .pos = under_top >> top });
+		}
+	} },
+	[PW_Or] = { "or", "a b -- a|b", [](pstate_t &state) {
+		check_stack_len_ge("or", 2);
+		push(state.stack, {
+			.pos = pop(state.stack).pos | pop(state.stack).pos
+		});
+	} },
+	[PW_And] = { "and", "a b -- a&b", [](pstate_t &state) {
+		check_stack_len_ge("and", 2);
+		push(state.stack, {
+			.pos = pop(state.stack).pos & pop(state.stack).pos
+		});
+	} },
+	[PW_Xor] = { "xor", "a b -- a^b", [](pstate_t &state) {
+		check_stack_len_ge("xor", 2);
+		push(state.stack, {
+			.pos = pop(state.stack).pos ^ pop(state.stack).pos
+		});
+	} },
+	[PW_Not] = { "not", "a -- ~a", [](pstate_t &state) {
+		check_stack_len_ge("not", 1);
+		push(state.stack, { .pos = ~pop(state.stack).pos });
+	} },
+
+	/* COMPARISON */
+	[PW_Eq] = { "=", "a b -- a=b", [](pstate_t &state) {
+		check_stack_len_ge("=?", 2);
+		push(state.stack, {
+			.sign = pop(state.stack).pos == pop(state.stack).pos
+			? -1 : 0
+		});
+	} },
+	[PW_Lt] = { "<", "a b -- a<b", [](pstate_t &state) {
+		check_stack_len_ge("=?", 2);
+		const int32_t b = pop(state.stack).sign;
+		const int32_t a = pop(state.stack).sign;
+		push(state.stack, { .sign = a < b ? -1 : 0 });
+	} },
+
+	/* LITERALS */
+	[PW_True] = { "true", "-- -1", [](pstate_t &state) {
+		check_stack_len_lt("true", STACK_SIZE);
+		push(state.stack, { .sign = -1 });
+	} },
+	[PW_False] = { "false", "-- 0", [](pstate_t &state) {
+		check_stack_len_lt("false", STACK_SIZE);
+		push(state.stack, { .sign = 0 });
+	} },
+
+	/* OUTPUT OPERATIONS */
+	[PW_Print] = { "print", "a -- ; prints top element of stack as a signed number", [](pstate_t &state) {
+		check_stack_len_ge("print", 1);
+		printf("%d ", pop(state.stack).sign);
+	} },
+	[PW_Pstr] = { "pstr", "a -- ; prints top element as string of at most four characters", [](pstate_t &state) {
+		check_stack_len_ge("pstr", 1);
+		const uint32_t str_raw = pop(state.stack).pos;
+		const char *str = (char*)&str_raw;
+		for (size_t i = 0; i < 4; ++i) {
+			if (str[i] == 0) break;
+			term::putchar(str[i]);
+		}
+	} },
+
+	/* STRINGS */
+	[PW_PrintString] = { "print_string", "... n -- ; prints a string of length n", [](pstate_t &state) {
+		check_stack_len_ge("print_string", 1);
+		const uint32_t n = pop(state.stack).pos;
+
+		check_stack_len_ge("print_string", n);
+		term::writestring((const char*)&stack_peek(state.stack, n-1));
+		for (uint32_t i = 0; i < n; ++i) pop(state.stack);
+	} },
+
+	/* SYSTEM OPERATION */
+	[PW_Exit] = { "exit", "-- ; exits the mieliepit interpreter", quit_primitive_fn },
+	[PW_Quit] = { "quit", "-- ; exits the mieliepit interpreter", quit_primitive_fn },
+	// TODO: sleep functions perhaps, clearing the keyboard buffer when done? Essentially ignoring all user input while sleeping
+
+	/* DOCUMENTATION / HELP / INSPECTION */
+	{ "syntax", "-- ; prints a list of all available syntax items", [](pstate_t &state) {
+		for (idx_t i = 0; i < SC_COUNT; ++i) {
+			if (i) putchar(' ');
+			term::writestring(state.syntax[i].name);
+		}
+		putchar('\n');
+	} },
+	{ "primitives", "-- ; prints a list of all available primitive words", [](pstate_t &state) {
+		for (idx_t i = 0; i < state.primitives_len; ++i) {
+			if (i) putchar(' ');
+			term::writestring(state.primitives[i].name);
+		}
+		putchar('\n');
+	} },
+	{ "words", "-- ; prints a list of all user-defined words", [](pstate_t &state) {
+		size_t i = length(state.words);
+		while (i --> 0) {
+			term::writestring(state.words[i].name);
+			if (i) putchar(' ');
+		}
+		putchar('\n');
+	} },
+	{ "guide", "-- ; prints usage guide for the mieliepit interpreter", guide_primitive_fn },
+};
+
+#undef error_fun
+#undef error
+
 namespace {
 
 /*** SECTION: Syntax implementation ***/
@@ -520,20 +794,6 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 		return {};
 	}
 
-	idx_t pstr_idx = 0;
-	idx_t print_idx = 0;
-
-	{
-		for (idx_t i = 0; i < interpreter.state.primitives_len; ++i) {
-			if (strcmp(interpreter.state.primitives[i].name, "pstr") == 0) {
-				pstr_idx = i;
-			}
-			if (strcmp(interpreter.state.primitives[i].name, "print") == 0) {
-				print_idx = i;
-			}
-		}
-	}
-
 	const char *s1 = "`: ";
 	const char *s2 = "Pushes the number ";
 	const char *s3 = " to the stack";
@@ -547,7 +807,7 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_number({
 				.pos = '`'
 			}));
-			push(interpreter.state.code, Value::new_primitive(pstr_idx));
+			push(interpreter.state.code, Value::new_primitive(PW_Pstr));
 
 			push(interpreter.state.code, Value::new_number({
 				.pos = reinterpret_cast<uint32_t>(word.name)
@@ -572,7 +832,7 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_number({
 				.pos = '`'
 			}));
-			push(interpreter.state.code, Value::new_primitive(pstr_idx));
+			push(interpreter.state.code, Value::new_primitive(PW_Pstr));
 
 			push(interpreter.state.code, Value::new_number({
 				.pos = reinterpret_cast<uint32_t>(primitive.name)
@@ -595,7 +855,7 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_number({
 				.pos = '`'
 			}));
-			push(interpreter.state.code, Value::new_primitive(pstr_idx));
+			push(interpreter.state.code, Value::new_primitive(PW_Pstr));
 
 			push(interpreter.state.code, Value::new_number({
 				.pos = reinterpret_cast<uint32_t>(syntax.name)
@@ -619,7 +879,7 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number(get(val).number));
-			push(interpreter.state.code, Value::new_primitive(print_idx));
+			push(interpreter.state.code, Value::new_primitive(PW_Print));
 
 			push(interpreter.state.code, Value::new_number({
 				.pos = reinterpret_cast<uint32_t>(s3)
@@ -745,16 +1005,6 @@ maybe_t<size_t> compile_def(Interpreter &interpreter) {
 		return {};
 	}
 
-	idx_t print_idx = 0;
-
-	{
-		for (idx_t i = 0; i < interpreter.state.primitives_len; ++i) {
-			if (strcmp(interpreter.state.primitives[i].name, "print") == 0) {
-				print_idx = i;
-			}
-		}
-	}
-
 	const char *s_end = "`>";
 	const char *s_pri = "<built-in primitive `";
 	const char *s_syn = "<built-in syntax expression `";
@@ -818,7 +1068,7 @@ maybe_t<size_t> compile_def(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number(get(val).number));
-			push(interpreter.state.code, Value::new_primitive(print_idx));
+			push(interpreter.state.code, Value::new_primitive(PW_Print));
 
 			push(interpreter.state.code, Value::new_number({
 				.pos = reinterpret_cast<uint32_t>(s_end)
@@ -1082,15 +1332,7 @@ void interpret_rep(Interpreter &interpreter) {
 maybe_t<size_t> compile_rep(Interpreter &interpreter) {
 	const auto rep_and_size = compile_rep_and(interpreter);
 	if (has(rep_and_size)) {
-		idx_t drop_idx = 0;
-
-		for (idx_t i = 0; i < interpreter.state.primitives_len; ++i) {
-			if (strcmp(interpreter.state.primitives[i].name, "drop") == 0) {
-				drop_idx = i;
-			}
-		}
-
-		assert(get(interpreter.compile_primitive_idx(drop_idx)) == 1);
+		assert(get(interpreter.compile_primitive_idx(PW_Drop)) == 1);
 
 		return get(rep_and_size) + 1;
 	} else {
@@ -1175,34 +1417,41 @@ RawFunction rep_and = { "rep_and", [](Runner &runner) {
 
 /*** SECTION: Syntax Array ***/
 
-const Syntax syntax[] = {
+const Syntax syntax[SC_COUNT] = {
 	/* VALUES */
-	{ "\"", "-- ... n ; pushes a string to the top of the stack (data then length)",
+	[SC_String] = {
+		"\"", "-- ... n ; pushes a string to the top of the stack (data then length)",
 		interpret_string, ignore_string, compile_string
 	},
-	{ "hex", "-- a ; interprets next word as hex number and pushes it",
+	[SC_Hex] = {
+		"hex", "-- a ; interprets next word as hex number and pushes it",
 		interpret_hex, ignore_hex, compile_hex,
 	},
-	{ "'", "-- a ; interprets next word as short (<= 4 long) string and pushes it",
+	[SC_ShortStr] = {
+		"'", "-- a ; interprets next word as short (<= 4 long) string and pushes it",
 		interpret_short_str, ignore_short_str, compile_short_str,
 	},
 
 	/* DOCUMENTATION / HELP / INSPECTION */
-	{ "help", "-- ; prints help text for the next word",
+	[SC_Help] = {
+		"help", "-- ; prints help text for the next word",
 		interpret_help, ignore_help, compile_help,
 	},
-	{ "def", "-- ; prints the definition of a given word",
+	[SC_Def] = {
+		"def", "-- ; prints the definition of a given word",
 		interpret_def, ignore_def, compile_def,
 	},
 
 	/* INTERNALS / SYNTAX */
-	{ "(", "-- ; begins a comment", ignore_comment, ignore_comment,
+	[SC_Comment] = {
+		"(", "-- ; begins a comment", ignore_comment, ignore_comment,
 		[](Interpreter &interpreter) -> maybe_t<size_t> {
 			ignore_comment(interpreter);
 			return 0;
 		}
 	},
-	{ "rec", "-- ; recurses (runs the current word from the start)",
+	[SC_Rec] = {
+		"rec", "-- ; recurses (runs the current word from the start)",
 		[](Interpreter &interpreter) {
 			// TODO:
 			// error_fun("rec", "rec is only valid when defining a word (inside : ; )");
@@ -1210,7 +1459,8 @@ const Syntax syntax[] = {
 			interpreter.state.error_handled = false;
 		}, [](Interpreter&) {}, compile_rec,
 	},
-	{ "ret", "-- ; returns (exits the current word early)",
+	[SC_Ret] = {
+		"ret", "-- ; returns (exits the current word early)",
 		[](Interpreter &interpreter) {
 			// TODO:
 			// error_fun("ret", "ret is only valid when defining a word (inside : ; )");
@@ -1218,10 +1468,12 @@ const Syntax syntax[] = {
 			interpreter.state.error_handled = false;
 		}, [](Interpreter&) {}, compile_ret,
 	},
-	{ "?", "a -- ; only executes the next word if the stack top is nonzero",
+	[SC_Skip] = {
+		"?", "a -- ; only executes the next word if the stack top is nonzero",
 		interpret_skip, ignore_skip, compile_skip,
 	},
-	{ ":", "-- ; begins a user-supplied word definition",
+	[SC_WordDef] = {
+		":", "-- ; begins a user-supplied word definition",
 		interpret_word_def, ignore_word_def,
 		[] (Interpreter &interpreter) -> maybe_t<size_t> {
 			// TODO:
@@ -1232,13 +1484,14 @@ const Syntax syntax[] = {
 			return {};
 		},
 	},
-	{ "rep_and", "n -- ??? n ; repeat the next word n times, and push n to the stack",
+	[SC_RepAnd] = {
+		"rep_and", "n -- ??? n ; repeat the next word n times, and push n to the stack",
 		interpret_rep_and, ignore_rep_and, compile_rep_and,
 	},
-	{ "rep", "n -- ??? ; repeat the next word n times",
+	[SC_Rep] = {
+		"rep", "n -- ??? ; repeat the next word n times",
 		interpret_rep, ignore_rep_and, compile_rep,
 	},
 };
-const size_t syntax_len = sizeof(syntax)/sizeof(*syntax);
 
 }
