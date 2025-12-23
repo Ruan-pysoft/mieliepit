@@ -111,10 +111,10 @@ void run_word_idx(idx_t word_idx, ProgramState &state) {
 	Runner runner = { {
 		.code = &state.code[word.code_pos],
 		.len = word.code_len,
-	}, state, Runner::Run };
+	}, state };
 
 	while (!state.error && runner.curr.len > 0) {
-		runner.advance();
+		runner.run_next();
 	}
 }
 void run_primitive_idx(idx_t primitive_idx, ProgramState &state) {
@@ -1375,10 +1375,10 @@ void interpret_rep_and(Interpreter &interpreter) {
 			Runner runner = { {
 				.code = &interpreter.state.code[code_pos],
 				.len = get(rep_len),
-			}, interpreter.state, Runner::Run };
+			}, interpreter.state };
 
 			while (!interpreter.state.error && runner.curr.len > 0) {
-				runner.advance();
+				runner.run_next();
 			}
 		}
 

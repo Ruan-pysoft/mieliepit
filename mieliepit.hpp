@@ -291,11 +291,6 @@ const char *error = nullptr;
 struct Interpreter {
 	const char *line = nullptr;
 	size_t len = 0;
-enum {
-		Run,
-		Compile,
-		Ignore,
-	} action;
 	struct {
 		const char *text;
 		size_t len;
@@ -507,14 +502,6 @@ maybe_t<idx_t> read_primitive_idx() {
 	}
 
 	bool ignore_next();
-
-	bool advance() {
-		switch (action) {
-			case Run: return run_next();
-			case Compile: return has(compile_next());
-			case Ignore: return ignore_next();
-		}
-	}
 };
 
 struct Runner {
@@ -525,14 +512,10 @@ struct Runner {
 	CodePos initial;
 	CodePos curr;
 
-	enum Action {
-		Run,
-		Ignore,
-	} action;
 	ProgramState &state;
 
-	Runner(CodePos at, ProgramState &state, Action action = Run)
-	: initial(at), curr(at), action(action), state(state) { }
+	Runner(CodePos at, ProgramState &state)
+	: initial(at), curr(at), state(state) { }
 
 	maybe_t<Value> read_value() {
 		if (curr.len == 0) return {};
@@ -595,13 +578,6 @@ struct Runner {
 	}
 
 	bool ignore_next();
-
-	bool advance() {
-		switch (action) {
-			case Run: return run_next();
-			case Ignore: return ignore_next();
-		}
-	}
 };
 
 enum PrimitiveWords {
