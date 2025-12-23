@@ -43,6 +43,11 @@ void writechar(char ch) {
 #endif
 }
 
+#ifdef KERNEL
+using ssize_t = int32_t;
+static_assert(sizeof(ssize_t) == sizeof(size_t));
+#endif
+
 }
 
 namespace mieliepit {
