@@ -10,11 +10,40 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <optional>
 #include <vector>
 #endif
 
 #include "./mieliepit.hpp"
+
+namespace {
+
+void writestring(const char *str) {
+#ifdef KERNEL
+	term::writestring(str);
+#else
+	std::cout << str;
+#endif
+}
+
+void writestringl(const char *str) {
+#ifdef KERNEL
+	puts(str);
+#else
+	std::cout << str << std::endl;
+#endif
+}
+
+void writechar(char ch) {
+#ifdef KERNEL
+	term::putchar(ch);
+#else
+	std::cout << ch;
+#endif
+}
+
+}
 
 namespace mieliepit {
 
@@ -238,25 +267,33 @@ const char *guide_text =
 #define error_fun(fun, msg) error("Error in `" fun "`: " msg)
 #define check_stack_len_lt(fun, expr) if (length(state.stack) >= (expr)) error_fun(fun, "stack length should be < " #expr)
 #define check_stack_len_ge(fun, expr) if (length(state.stack) < (expr)) error_fun(fun, "stack length should be >= " #expr)
+#ifdef KERNEL
 #define check_stack_cap(fun, expr) if (length(state.stack) + (expr) >= STACK_SIZE) error_fun(fun, "stack capacity should be at least " #expr)
+#else
+#define check_stack_cap(fun, expr) do {} while (0)
+#endif
 #define check_code_len(fun, len) if (length(state.code) + (len) > CODE_BUFFER_SIZE) error_fun(fun, "not enough space to generate code for user word")
 using pstate_t = ProgramState;
 const Primitive primitives[PW_COUNT] = {
 	/* STACK OPERATIONS */
 	[PW_ShowStack] = { ".", "-- ; shows the top 16 elements of the stack", [](pstate_t &state) {
-		if (length(state.stack) == 0) { puts("empty."); return; }
+		if (length(state.stack) == 0) { writestringl("empty."); return; }
 
 		const size_t amt = length(state.stack) < 16
 			? length(state.stack)
 			: 16;
 		if (length(state.stack) > 16) {
-			term::writestring("... ");
+			writestring("... ");
 		}
 		size_t i = amt;
 		while (i --> 0) {
-			printf("%d ", stack_peek(state.stack, i));
+		#ifdef KERNEL
+			printf("%d ", stack_peek(state.stack, i).sign);
+		#else
+			std::cout << stack_peek(state.stack, i).sign << " ";
+		#endif
 		}
-		putchar('\n');
+		writechar('\n');
 	} },
 	[PW_StackLen] = { "stack_len", "-- a ; pushes length of stack", [](pstate_t &state) {
 		check_stack_cap("stack_len", 1);
@@ -420,18 +457,23 @@ const Primitive primitives[PW_COUNT] = {
 
 	/* LITERALS */
 	[PW_True] = { "true", "-- -1", [](pstate_t &state) {
-		check_stack_len_lt("true", STACK_SIZE);
+		check_stack_cap("true", 1);
 		push(state.stack, { .sign = -1 });
 	} },
 	[PW_False] = { "false", "-- 0", [](pstate_t &state) {
-		check_stack_len_lt("false", STACK_SIZE);
+		check_stack_cap("false", 1);
 		push(state.stack, { .sign = 0 });
 	} },
 
 	/* OUTPUT OPERATIONS */
 	[PW_Print] = { "print", "a -- ; prints top element of stack as a signed number", [](pstate_t &state) {
 		check_stack_len_ge("print", 1);
-		printf("%d ", pop(state.stack).sign);
+		const auto top = pop(state.stack);
+	#ifdef KERNEL
+		printf("%d ", top.sign);
+	#else
+		std::cout << top.sign << " ";
+	#endif
 	} },
 	[PW_Pstr] = { "pstr", "a -- ; prints top element as string of at most four characters", [](pstate_t &state) {
 		check_stack_len_ge("pstr", 1);
@@ -439,7 +481,7 @@ const Primitive primitives[PW_COUNT] = {
 		const char *str = (char*)&str_raw;
 		for (size_t i = 0; i < 4; ++i) {
 			if (str[i] == 0) break;
-			term::putchar(str[i]);
+			writechar(str[i]);
 		}
 	} },
 
@@ -449,7 +491,7 @@ const Primitive primitives[PW_COUNT] = {
 		const uint32_t n = pop(state.stack).pos;
 
 		check_stack_len_ge("print_string", n);
-		term::writestring((const char*)&stack_peek(state.stack, n-1));
+		writestring((const char*)&stack_peek(state.stack, n-1));
 		for (uint32_t i = 0; i < n; ++i) pop(state.stack);
 	} },
 
@@ -461,25 +503,25 @@ const Primitive primitives[PW_COUNT] = {
 	/* DOCUMENTATION / HELP / INSPECTION */
 	{ "syntax", "-- ; prints a list of all available syntax items", [](pstate_t &state) {
 		for (idx_t i = 0; i < SC_COUNT; ++i) {
-			if (i) putchar(' ');
-			term::writestring(state.syntax[i].name);
+			if (i) writechar(' ');
+			writestring(state.syntax[i].name);
 		}
-		putchar('\n');
+		writechar('\n');
 	} },
 	{ "primitives", "-- ; prints a list of all available primitive words", [](pstate_t &state) {
 		for (idx_t i = 0; i < state.primitives_len; ++i) {
-			if (i) putchar(' ');
-			term::writestring(state.primitives[i].name);
+			if (i) writechar(' ');
+			writestring(state.primitives[i].name);
 		}
-		putchar('\n');
+		writechar('\n');
 	} },
 	{ "words", "-- ; prints a list of all user-defined words", [](pstate_t &state) {
 		size_t i = length(state.words);
 		while (i --> 0) {
-			term::writestring(state.words[i].name);
-			if (i) putchar(' ');
+			writestring(state.words[i].name);
+			if (i) writechar(' ');
 		}
-		putchar('\n');
+		writechar('\n');
 	} },
 	{ "guide", "-- ; prints usage guide for the mieliepit interpreter", guide_primitive_fn },
 };
@@ -739,18 +781,34 @@ void interpret_help(Interpreter &interpreter) {
 	switch (get(val).type) {
 		case Value::Word: {
 			const auto &word = interpreter.state.words[get(val).word_idx];
+		#ifdef KERNEL
 			printf("`%s`: %s", word.name, word.desc);
+		#else
+			std::cout << '`' << word.name << "`: " << word.desc;
+		#endif
 		} break;
 		case Value::Primitive: {
 			const auto &primitive = interpreter.state.primitives[get(val).primitive_idx];
+		#ifdef KERNEL
 			printf("`%s`: %s", primitive.name, primitive.desc);
+		#else
+			std::cout << '`' << primitive.name << "`: " << primitive.desc;
+		#endif
 		} break;
 		case Value::Syntax: {
 			const auto &syntax = interpreter.state.syntax[get(val).syntax_idx];
+		#ifdef KERNEL
 			printf("`%s`: %s", syntax.name, syntax.desc);
+		#else
+			std::cout << '`' << syntax.name << "`: " << syntax.desc;
+		#endif
 		} break;
 		case Value::Number: {
+		#ifdef KERNEL
 			printf("Pushes the number %u to the stack", get(val).number.pos);
+		#else
+			std::cout << "Pushes the number " << get(val).number.pos << " to the stack";
+		#endif
 		} break;
 		case Value::RawFunction: {
 			// TODO: some sort of error (maybe?)
@@ -810,17 +868,17 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_primitive(PW_Pstr));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(word.name)
+				.pos = reinterpret_cast<idx_t>(word.name)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s1)
+				.pos = reinterpret_cast<idx_t>(s1)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(word.desc)
+				.pos = reinterpret_cast<idx_t>(word.desc)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 		} break;
@@ -835,17 +893,17 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_primitive(PW_Pstr));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(primitive.name)
+				.pos = reinterpret_cast<idx_t>(primitive.name)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s1)
+				.pos = reinterpret_cast<idx_t>(s1)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(primitive.desc)
+				.pos = reinterpret_cast<idx_t>(primitive.desc)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 		} break;
@@ -858,23 +916,23 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_primitive(PW_Pstr));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(syntax.name)
+				.pos = reinterpret_cast<idx_t>(syntax.name)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s1)
+				.pos = reinterpret_cast<idx_t>(s1)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(syntax.desc)
+				.pos = reinterpret_cast<idx_t>(syntax.desc)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 		} break;
 		case Value::Number: {
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s2)
+				.pos = reinterpret_cast<idx_t>(s2)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
@@ -882,7 +940,7 @@ maybe_t<size_t> compile_help(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_primitive(PW_Print));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s3)
+				.pos = reinterpret_cast<idx_t>(s3)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 		} break;
@@ -899,7 +957,11 @@ void print_definition(ProgramState &state, idx_t word_idx) {
 	assert(word_idx < length(state.words));
 	const Word &word = state.words[word_idx];
 
+#ifdef KERNEL
 	printf(": %s ( %s )", word.name, word.desc);
+#else
+	std::cout << ": " << word.name << " ( " << word.desc << " )";
+#endif
 
 	assert(word.code_pos <= length(state.code));
 	assert(word.code_pos + word.code_len <= length(state.code));
@@ -908,25 +970,41 @@ void print_definition(ProgramState &state, idx_t word_idx) {
 		switch (value.type) {
 			case Value::Word: {
 				assert(value.word_idx < length(state.words));
+			#ifdef KERNEL
 				printf(" %s", state.words[value.word_idx].name);
+			#else
+				std::cout << ' ' << state.words[value.word_idx].name;
+			#endif
 			} break;
 			case Value::Primitive: {
 				assert(value.primitive_idx < state.primitives_len);
+			#ifdef KERNEL
 				printf(" %s", state.primitives[value.primitive_idx]);
+			#else
+				std::cout << ' ' << state.primitives[value.primitive_idx].name;
+			#endif
 			} break;
 			case Value::Syntax: {
 				state.error = "Error: syntax expression shouldn't be present in compiled word";
 				state.error_handled = false;
 			} break;
 			case Value::Number: {
+			#ifdef KERNEL
 				printf(" %u", value.number.pos);
+			#else
+				std::cout << ' ' << value.number.pos;
+			#endif
 			} break;
 			case Value::RawFunction: {
+			#ifdef KERNEL
 				printf(" %s", value.function_ptr->name);
+			#else
+				std::cout << ' ' << value.function_ptr->name;
+			#endif
 			} break;
 		}
 	}
-	printf(" ;");
+	writestring(" ;");
 }
 void interpret_def(Interpreter &interpreter) {
 	interpreter.get_word();
@@ -954,14 +1032,26 @@ void interpret_def(Interpreter &interpreter) {
 		} break;
 		case Value::Primitive: {
 			const auto &primitive = interpreter.state.primitives[get(val).primitive_idx];
+		#ifdef KERNEL
 			printf("<built-in primitive `%s`>", primitive.name);
+		#else
+			std::cout << "<built-in primitive `" << primitive.name << "`>";
+		#endif
 		} break;
 		case Value::Syntax: {
 			const auto &syntax = interpreter.state.syntax[get(val).syntax_idx];
+		#ifdef KERNEL
 			printf("<built-in syntax expression `%s`>", syntax.name);
+		#else
+			std::cout << "<build-in syntax expression `" << syntax.name << "`>";
+		#endif
 		} break;
 		case Value::Number: {
+		#ifdef KERNEL
 			printf("<literal %u>", get(val).number.pos);
+		#else
+			std::cout << "<literal " << get(val).number.pos << '>';
+		#endif
 		} break;
 		case Value::RawFunction: {
 			// TODO: some sort of error (maybe?)
@@ -1026,17 +1116,17 @@ maybe_t<size_t> compile_def(Interpreter &interpreter) {
 			const auto &primitive = interpreter.state.primitives[get(val).primitive_idx];
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s_pri)
+				.pos = reinterpret_cast<idx_t>(s_pri)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(primitive.name)
+				.pos = reinterpret_cast<idx_t>(primitive.name)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s_end)
+				.pos = reinterpret_cast<idx_t>(s_end)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 		} break;
@@ -1047,23 +1137,23 @@ maybe_t<size_t> compile_def(Interpreter &interpreter) {
 			const auto &syntax = interpreter.state.syntax[get(val).syntax_idx];
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s_syn)
+				.pos = reinterpret_cast<idx_t>(s_syn)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(syntax.name)
+				.pos = reinterpret_cast<idx_t>(syntax.name)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s_end)
+				.pos = reinterpret_cast<idx_t>(s_end)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 		} break;
 		case Value::Number: {
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s_lit)
+				.pos = reinterpret_cast<idx_t>(s_lit)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 
@@ -1071,7 +1161,7 @@ maybe_t<size_t> compile_def(Interpreter &interpreter) {
 			push(interpreter.state.code, Value::new_primitive(PW_Print));
 
 			push(interpreter.state.code, Value::new_number({
-				.pos = reinterpret_cast<uint32_t>(s_end)
+				.pos = reinterpret_cast<idx_t>(s_end)
 			}));
 			push(interpreter.state.code, Value::new_function_ptr(&print_raw));
 		} break;
@@ -1347,11 +1437,7 @@ RawFunction print_raw = { "<internal:print_raw>", [](Runner &runner) {
 	// TODO:
 	// check_stack_len_ge("<internal:print_raw>", 1);
 	const char *str = reinterpret_cast<const char*>(pop(runner.state.stack).pos);
-	#ifdef KERNEL
-	term::writestring(str);
-	#else
-	fputs(stdout, str);
-	#endif
+	writestring(str);
 } };
 
 RawFunction print_definition_rf = { "<internal:print_definition>", [](Runner &runner) {

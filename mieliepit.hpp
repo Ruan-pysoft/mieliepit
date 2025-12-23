@@ -209,15 +209,17 @@ size_t length(const FixedBuffer<T, CAPACITY> &buf) {
 #else
 template<typename T>
 void push(std::vector<T> &vec, T value) {
-	vec.push(value);
+	vec.push_back(value);
 }
 template<typename T>
 T pop(std::vector<T> &vec) {
-	return vec.pop();
+	const T res = *vec.rbegin();
+	vec.pop_back();
+	return res;
 }
 template<typename T>
 size_t length(const std::vector<T> &vec) {
-return vec.size();
+	return vec.size();
 }
 #endif
 
