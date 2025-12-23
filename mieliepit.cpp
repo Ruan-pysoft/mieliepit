@@ -346,7 +346,7 @@ const Primitive primitives[PW_COUNT] = {
 	} },
 	[PW_RevN] = { "rev_n", "... n -- ... ; reverse the top n elements", [](pstate_t &state) {
 		check_stack_len_ge("rev_n", 1);
-		const uint32_t n = pop(state.stack).pos;
+		const size_t n = pop(state.stack).pos;
 		check_stack_len_ge("rot_n", n);
 		for (size_t i = 0; i < n/2; ++i) {
 			const size_t fst_ix = i;
@@ -358,7 +358,7 @@ const Primitive primitives[PW_COUNT] = {
 	} },
 	[PW_Nth] = { "nth", "... n -- ... x ; dup the nth element down to the top", [](pstate_t &state) {
 		check_stack_len_ge("nth", 1);
-		const uint32_t n = pop(state.stack).pos;
+		const size_t n = pop(state.stack).pos;
 		check_stack_len_ge("nth", n);
 		if (n == 0) {
 			error_fun("nth", "n must be nonzero");
@@ -399,8 +399,8 @@ const Primitive primitives[PW_COUNT] = {
 	/* BITWISE OPERATIONS */
 	[PW_Shl] = { "shl", "a b -- a<<b", [](pstate_t &state) {
 		check_stack_len_ge("shl", 2);
-		const uint32_t top = pop(state.stack).pos;
-		const uint32_t under_top = pop(state.stack).pos;
+		const size_t top = pop(state.stack).pos;
+		const size_t under_top = pop(state.stack).pos;
 		if (top >= 32) {
 			push(state.stack, {0});
 		} else {
@@ -409,8 +409,8 @@ const Primitive primitives[PW_COUNT] = {
 	} },
 	[PW_Shr] = { "shr", "a b -- a>>b", [](pstate_t &state) {
 		check_stack_len_ge("shr", 2);
-		const uint32_t top = pop(state.stack).pos;
-		const uint32_t under_top = pop(state.stack).pos;
+		const size_t top = pop(state.stack).pos;
+		const size_t under_top = pop(state.stack).pos;
 		if (top >= 32) {
 			push(state.stack, {0});
 		} else {
@@ -450,8 +450,8 @@ const Primitive primitives[PW_COUNT] = {
 	} },
 	[PW_Lt] = { "<", "a b -- a<b", [](pstate_t &state) {
 		check_stack_len_ge("=?", 2);
-		const int32_t b = pop(state.stack).sign;
-		const int32_t a = pop(state.stack).sign;
+		const ssize_t b = pop(state.stack).sign;
+		const ssize_t a = pop(state.stack).sign;
 		push(state.stack, { .sign = a < b ? -1 : 0 });
 	} },
 
@@ -477,9 +477,10 @@ const Primitive primitives[PW_COUNT] = {
 	} },
 	[PW_Pstr] = { "pstr", "a -- ; prints top element as string of at most four characters", [](pstate_t &state) {
 		check_stack_len_ge("pstr", 1);
-		const uint32_t str_raw = pop(state.stack).pos;
+		const size_t str_raw = pop(state.stack).pos;
 		const char *str = (char*)&str_raw;
-		for (size_t i = 0; i < 4; ++i) {
+		constexpr size_t substr_max_width = sizeof(size_t);
+		for (size_t i = 0; i < substr_max_width; ++i) {
 			if (str[i] == 0) break;
 			writechar(str[i]);
 		}
@@ -488,11 +489,11 @@ const Primitive primitives[PW_COUNT] = {
 	/* STRINGS */
 	[PW_PrintString] = { "print_string", "... n -- ; prints a string of length n", [](pstate_t &state) {
 		check_stack_len_ge("print_string", 1);
-		const uint32_t n = pop(state.stack).pos;
+		const size_t n = pop(state.stack).pos;
 
 		check_stack_len_ge("print_string", n);
 		writestring((const char*)&stack_peek(state.stack, n-1));
-		for (uint32_t i = 0; i < n; ++i) pop(state.stack);
+		for (size_t i = 0; i < n; ++i) pop(state.stack);
 	} },
 
 	/* SYSTEM OPERATION */
@@ -563,6 +564,8 @@ string_value_t parse_string(Interpreter &interpreter) {
 	const char *start = interpreter.curr_word.text;
 	const char *end = start + interpreter.curr_word.len;
 
+	constexpr size_t substr_max_width = sizeof(size_t);
+
 	while (true) {
 		interpreter.get_word();
 		interpreter.curr_word.handled = true;
@@ -579,7 +582,7 @@ string_value_t parse_string(Interpreter &interpreter) {
 	}
 
 	const size_t len = end - start;
-	const size_t words = len/4 + !!(len&3);
+	const size_t words = len/substr_max_width + !!(len&(substr_max_width-1));
 
 	return {
 		.start = start,
@@ -595,11 +598,13 @@ void interpret_string(Interpreter &interpreter) {
 	// TODO:
 	// check_stack_cap("\"", words+1);
 
+	constexpr size_t substr_max_width = sizeof(size_t);
+
 	for (size_t i = 0; i < str.words; ++i) {
-		uint32_t num = 0;
-		size_t j = i*4 + 4;
+		size_t num = 0;
+		size_t j = i*substr_max_width + substr_max_width;
 		if (j > str.len) j = str.len;
-		while (j --> i*4) {
+		while (j --> i*substr_max_width) {
 			const char ch = str.start[j];
 			num <<= 8;
 			num |= *(const uint8_t*)&ch;
@@ -622,11 +627,13 @@ maybe_t<size_t> compile_string(Interpreter &interpreter) {
 	// TODO:
 	// check_code_len("\"", (words+1)*2);
 
+	constexpr size_t substr_max_width = sizeof(size_t);
+
 	for (size_t i = 0; i < str.words; ++i) {
-		uint32_t num = 0;
-		size_t j = i*4 + 4;
+		size_t num = 0;
+		size_t j = i*substr_max_width + substr_max_width;
 		if (j > str.len) j = str.len;
-		while (j --> i*4) {
+		while (j --> i*substr_max_width) {
 			const char ch = str.start[j];
 			num <<= 8;
 			num |= *(const uint8_t*)&ch;
@@ -655,7 +662,7 @@ number_t parse_hex(Interpreter &interpreter) {
 		interpreter.state.error_handled = false;
 		return { .pos = 0 };
 	}
-	uint32_t num = 0;
+	size_t num = 0;
 	for (size_t i = 0; i < interpreter.curr_word.len; ++i) {
 		const char ch = interpreter.curr_word.text[i];
 		if ((ch < '0' || '9' < ch) && (ch < 'a' || 'z' < ch) && (ch < 'A' || 'Z' < ch)) {
@@ -714,14 +721,19 @@ number_t parse_short_str(Interpreter &interpreter) {
 		interpreter.state.error_handled = false;
 		return { .pos = 0 };
 	}
-	if (interpreter.curr_word.len > 8) {
+	constexpr size_t substr_max_width = sizeof(size_t);
+	if (interpreter.curr_word.len > substr_max_width) {
 		// TODO:
 		// error_fun("'", "short strings may be no longer than four characters");
+		#ifdef KERNEL
 		interpreter.state.error = "Error: short strings may be no longer than four characters";
+		#else
+		interpreter.state.error = "Error: short strings may be no longer than eight characters";
+		#endif
 		interpreter.state.error_handled = false;
 		return { .pos = 0 };
 	}
-	uint32_t num = 0;
+	size_t num = 0;
 	size_t i = interpreter.curr_word.len;
 	while (i --> 0) {
 		const char ch = interpreter.curr_word.text[i];

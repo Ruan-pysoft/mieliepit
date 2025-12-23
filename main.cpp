@@ -21,6 +21,8 @@ void interpret_str(Interpreter &interpreter, const std::string str, bool silent 
 
 	interpreter.line = str.c_str();
 	interpreter.len = str.size();
+	interpreter.curr_word = {};
+	interpreter.action = Interpreter::Run;
 
 	while (!interpreter.state.error && interpreter.len > 0) {
 		interpreter.advance();
