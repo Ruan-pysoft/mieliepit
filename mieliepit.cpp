@@ -885,9 +885,12 @@ maybe_t<size_t> compile_skip(Interpreter &interpreter) {
 
 		return get(next_len)+2;
 	} else {
+		pop(interpreter.state.code); // ? function
+		pop(interpreter.state.code); // code length
+
 		assert(false); // TODO: some sort of error or something?
 
-		return 2;
+		return {};
 	}
 }
 
@@ -1000,6 +1003,102 @@ void ignore_word_def(Interpreter &interpreter) {
 	}
 }
 
+void interpret_rep_and(Interpreter &interpreter) {
+	const size_t initial_size = length(interpreter.state.code);
+	const idx_t code_pos = initial_size;
+	const auto rep_len = interpreter.compile_next();
+
+	if (has(rep_len)) {
+		// TODO:
+		// check_stack_len_ge("rep_and", 1);
+
+		const size_t n = pop(interpreter.state.stack).pos;
+
+		for (size_t i = 0; i < n; ++i) {
+			Runner runner = { {
+				.code = &interpreter.state.code[code_pos],
+				.len = get(rep_len),
+			}, interpreter.state, Runner::Run };
+
+			while (!interpreter.state.error && runner.curr.len > 0) {
+				runner.advance();
+			}
+		}
+
+		while (length(interpreter.state.code) > initial_size) {
+			pop(interpreter.state.code);
+		}
+
+		if (interpreter.state.error == nullptr) {
+			// TODO:
+			// check_stack_cap("rep_and", 1);
+
+			push(interpreter.state.stack, { .pos = n });
+		}
+	} else {
+		// TODO:
+		interpreter.state.error = "Error: invalid code after rep_and";
+		interpreter.state.error_handled = false;
+		return;
+	}
+}
+
+void ignore_rep_and(Interpreter &interpreter) {
+	assert(interpreter.ignore_next()); // TODO: some sort of error or something?
+}
+
+extern RawFunction rep_and;
+maybe_t<size_t> compile_rep_and(Interpreter &interpreter) {
+	// TODO:
+	// check_code_len ...
+
+	push(interpreter.state.code, Value::new_number({ .pos = 0 }));
+	Value &skip_len = interpreter.state.code[length(interpreter.state.code)-1];
+
+	push(interpreter.state.code, Value::new_function_ptr(&rep_and));
+
+	const auto next_len = interpreter.compile_next();
+	if (has(next_len)) {
+		skip_len.number.pos = get(next_len);
+
+		return get(next_len)+2;
+	} else {
+		pop(interpreter.state.code); // rep_and function
+		pop(interpreter.state.code); // code length
+
+		assert(false); // TODO: some sort of error or something?
+
+		return {};
+	}
+}
+
+void interpret_rep(Interpreter &interpreter) {
+	interpret_rep_and(interpreter);
+	if (interpreter.state.error == nullptr) {
+		pop(interpreter.state.stack);
+	}
+}
+
+maybe_t<size_t> compile_rep(Interpreter &interpreter) {
+	const auto rep_and_size = compile_rep_and(interpreter);
+	if (has(rep_and_size)) {
+		idx_t drop_idx = 0;
+
+		for (idx_t i = 0; i < interpreter.state.primitives_len; ++i) {
+			if (strcmp(interpreter.state.primitives[i].name, "drop") == 0) {
+				drop_idx = i;
+			}
+		}
+
+		assert(get(interpreter.compile_primitive_idx(drop_idx)) == 1);
+
+		return get(rep_and_size) + 1;
+	} else {
+		// TODO: error?
+		return {};
+	}
+}
+
 /*** SECTION: Raw function values ***/
 
 RawFunction print_raw = { "<internal:print_raw>", [](Runner &runner) {
@@ -1040,6 +1139,36 @@ RawFunction skip = { "?", [](Runner &runner) {
 		runner.curr.code += skip_len;
 		runner.curr.len -= skip_len;
 	}
+} };
+
+RawFunction rep_and = { "rep_and", [](Runner &runner) {
+	// TODO:
+	// check_stack_len_ge("rep_and", 2);
+
+	const size_t rep_len = pop(runner.state.stack).pos;
+	const Value *rep_until = runner.curr.code + rep_len;
+	const size_t reps = pop(runner.state.stack).pos;
+
+	const auto start_at = runner.curr;
+
+	for (size_t i = 0; i < reps; ++i) {
+		while (runner.curr.code < rep_until) {
+			runner.run_next();
+		}
+
+		assert(runner.curr.code == rep_until);
+
+		runner.curr = start_at;
+	}
+
+	assert(rep_len <= runner.curr.len);
+	runner.curr.code += rep_len;
+	runner.curr.len -= rep_len;
+
+	// TODO:
+	// check_stack_cap("rep_and", 1);
+
+	push(runner.state.stack, { .pos = reps });
 } };
 
 }
@@ -1103,12 +1232,12 @@ const Syntax syntax[] = {
 			return {};
 		},
 	},
-	/*{ "rep_and", "n -- ??? n ; repeat the next word n times, and push n to the stack",
+	{ "rep_and", "n -- ??? n ; repeat the next word n times, and push n to the stack",
 		interpret_rep_and, ignore_rep_and, compile_rep_and,
 	},
 	{ "rep", "n -- ??? ; repeat the next word n times",
-		interpret_rep, ignore_rep, compile_rep,
-	},*/
+		interpret_rep, ignore_rep_and, compile_rep,
+	},
 };
 const size_t syntax_len = sizeof(syntax)/sizeof(*syntax);
 
