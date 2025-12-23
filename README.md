@@ -13,13 +13,12 @@ Here I'm only going to create the interpreter / compiler / bytecode runner, with
 Fibonacci program:
 
 ```
-> : fib_inner ( a b -- b a+b ) dup rot + ;
-> : fib ( n -- fib(n) ) 0 1 rot rep fib_inner drop ;
-> : fib_next ( n -- n+1 ; prints fib(n) ) dup fib print inc ;
-> def fib_next 10 pstr def fib 10 pstr def fib_inner
-> 0 64 rep fib_next ( print fib(0) to fib(63) )
+> : fib ( n -- fib(n) ) 0 1 rot rep [ ( a b -- b a+b ) dup rot + ] drop ;
+> def fib
+> ( print fib(0) to fib(63) )
 > ( note that in the kernel the later values will be negative )
 > ( because of integer overflow )
+> 0 64 rep [ ( n -- n+1 ; prints fib(n) ) dup fib print inc ]
 ```
 
 ## Licensing

@@ -670,6 +670,7 @@ enum SyntaxConstructions {
 	SC_WordDef,
 	SC_RepAnd,
 	SC_Rep,
+	SC_Block,
 
 	SC_COUNT
 };

@@ -1448,6 +1448,90 @@ maybe_t<size_t> compile_rep(Interpreter &interpreter) {
 	}
 }
 
+void interpret_block(Interpreter &interpreter) {
+	while (true) {
+		interpreter.get_word();
+
+		if (interpreter.curr_word.len == 1 && interpreter.curr_word.text[0] == ']') {
+			interpreter.curr_word.handled = true;
+			break;
+		} else if (interpreter.curr_word.len == 0) {
+			interpreter.state.error = "Error: unclosed block";
+			interpreter.state.error_handled = false;
+			break;
+		}
+
+		if (!interpreter.run_next()) {
+			// TODO: proper error handling
+			interpreter.state.error = "Error: unrecognised word while parsing block";
+			interpreter.state.error_handled = false;
+			break;
+		}
+	}
+}
+
+void ignore_block(Interpreter &interpreter) {
+	while (true) {
+		interpreter.get_word();
+
+		if (interpreter.curr_word.len == 1 && interpreter.curr_word.text[0] == ']') {
+			interpreter.curr_word.handled = true;
+			break;
+		} else if (interpreter.curr_word.len == 0) {
+			interpreter.state.error = "Error: unclosed block";
+			interpreter.state.error_handled = false;
+			break;
+		}
+
+		if (!interpreter.ignore_next()) {
+			// TODO: proper error handling
+			interpreter.state.error = "Error: unrecognised word while parsing block";
+			interpreter.state.error_handled = false;
+			break;
+		}
+	}
+}
+
+maybe_t<size_t> compile_block(Interpreter &interpreter) {
+	const size_t initial_code_len = length(interpreter.state.code);
+
+	size_t total_len = 0;
+
+	while (true) {
+		interpreter.get_word();
+
+		if (interpreter.curr_word.len == 1 && interpreter.curr_word.text[0] == ']') {
+			interpreter.curr_word.handled = true;
+			break;
+		} else if (interpreter.curr_word.len == 0) {
+			interpreter.state.error = "Error: unclosed block";
+			interpreter.state.error_handled = false;
+			break;
+		}
+
+		const auto next_size = interpreter.compile_next();
+		if (!has(next_size)) {
+			// TODO: proper error handling
+			if (interpreter.state.error) break;
+			interpreter.state.error = "Error: unrecognised word while parsing block";
+			interpreter.state.error_handled = false;
+			break;
+		} else {
+			total_len += get(next_size);
+		}
+	}
+
+	if (interpreter.state.error) {
+		while (length(interpreter.state.code) > initial_code_len) {
+			pop(interpreter.state.code);
+		}
+
+		return {};
+	} else {
+		return total_len;
+	}
+}
+
 /*** SECTION: Raw function values ***/
 
 RawFunction print_raw = { "<internal:print_raw>", [](Runner &runner) {
@@ -1547,7 +1631,7 @@ const Syntax syntax[SC_COUNT] = {
 
 	/* INTERNALS / SYNTAX */
 	[SC_Comment] = {
-		"(", "-- ; begins a comment", ignore_comment, ignore_comment,
+		"(", "-- ; begins a ( comment )", ignore_comment, ignore_comment,
 		[](Interpreter &interpreter) -> maybe_t<size_t> {
 			ignore_comment(interpreter);
 			return 0;
@@ -1594,6 +1678,10 @@ const Syntax syntax[SC_COUNT] = {
 	[SC_Rep] = {
 		"rep", "n -- ??? ; repeat the next word n times",
 		interpret_rep, ignore_rep_and, compile_rep,
+	},
+	[SC_Block] = {
+		"[", "-- ; begins a [ block ], treated as one unit by ?, rep, etc",
+		interpret_block, ignore_block, compile_block,
 	},
 };
 
