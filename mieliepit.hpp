@@ -81,7 +81,7 @@ using maybe_t = sdk::util::Maybe<T>;
 template<typename T>
 bool has(const maybe_t<T> &maybe) { return maybe.has; }
 template<typename T>
-T get(const maybe_t<T> &maybe) { return maybe.value; }
+T get(const maybe_t<T> &maybe) { return maybe.get(); }
 template<typename T>
 T get_or(const maybe_t<T> &maybe, T alternative) {
 	if (maybe.has) return maybe.value;
