@@ -96,6 +96,20 @@ namespace {
 
 /*** SECTION: Basic runner functions ***/
 
+void run_compiled_section(idx_t code_pos, size_t code_len, ProgramState &state) {
+	assert(code_pos <= length(state.code));
+	assert(code_pos + code_len <= length(state.code));
+
+	Runner runner = { {
+		.code = &state.code[code_pos],
+		.len = code_len,
+	}, state };
+
+	while (!state.error && runner.curr.len > 0) {
+		runner.run_next();
+	}
+}
+
 void run_word_idx(idx_t word_idx, ProgramState &state);
 void run_primitive_idx(idx_t primitive_idx, ProgramState &state);
 void run_number(number_t number, ProgramState &state);
@@ -108,14 +122,7 @@ void run_word_idx(idx_t word_idx, ProgramState &state) {
 	assert(word.code_pos <= length(state.code));
 	assert(word.code_pos + word.code_len <= length(state.code));
 
-	Runner runner = { {
-		.code = &state.code[word.code_pos],
-		.len = word.code_len,
-	}, state };
-
-	while (!state.error && runner.curr.len > 0) {
-		runner.run_next();
-	}
+	run_compiled_section(word.code_pos, word.code_len, state);
 }
 void run_primitive_idx(idx_t primitive_idx, ProgramState &state) {
 	assert(primitive_idx < state.primitives_len);
@@ -1191,6 +1198,16 @@ maybe_t<size_t> compile_def(Interpreter &interpreter) {
 	return length(interpreter.state.code) - start_len;
 }
 
+extern RawFunction tail_recurse;
+maybe_t<size_t> compile_tail_rec(Interpreter &interpreter) {
+	// TODO:
+	// check_code_len("tail_rec", 1);
+
+	push(interpreter.state.code, Value::new_function_ptr(&tail_recurse));
+
+	return 1;
+}
+
 extern RawFunction recurse;
 maybe_t<size_t> compile_rec(Interpreter &interpreter) {
 	// TODO:
@@ -1204,7 +1221,7 @@ maybe_t<size_t> compile_rec(Interpreter &interpreter) {
 extern RawFunction return_rf;
 maybe_t<size_t> compile_ret(Interpreter &interpreter) {
 	// TODO:
-	// check_code_len("rec", 1);
+	// check_code_len("ret", 1);
 
 	push(interpreter.state.code, Value::new_function_ptr(&return_rf));
 
@@ -1548,8 +1565,16 @@ RawFunction print_definition_rf = { "<internal:print_definition>", [](Runner &ru
 	print_definition(runner.state, word_idx);
 } };
 
-RawFunction recurse = { "rec", [](Runner &runner) {
+RawFunction tail_recurse = { "tail_rec", [](Runner &runner) {
 	runner.curr = runner.initial;
+} };
+
+RawFunction recurse = { "rec", [](Runner &runner) {
+	run_compiled_section(
+		runner.initial.code - &*runner.state.code.begin(),
+		runner.initial.len,
+		runner.state
+	);
 } };
 
 RawFunction return_rf = { "ret", [](Runner &runner) {
@@ -1637,8 +1662,17 @@ const Syntax syntax[SC_COUNT] = {
 			return 0;
 		}
 	},
+	[SC_TailRec] = {
+		"tail_rec", "-- ; tail recurses (rewinds the current word to the start)",
+		[](Interpreter &interpreter) {
+			// TODO:
+			// error_fun("tail_rec", "tail_rec is only valid when defining a word (inside : ; )");
+			interpreter.state.error = "tail_rec is only valid when defining a word";
+			interpreter.state.error_handled = false;
+		}, [](Interpreter&) {}, compile_tail_rec,
+	},
 	[SC_Rec] = {
-		"rec", "-- ; recurses (runs the current word from the start)",
+		"rec", "-- ; recurses (runs the current word)",
 		[](Interpreter &interpreter) {
 			// TODO:
 			// error_fun("rec", "rec is only valid when defining a word (inside : ; )");

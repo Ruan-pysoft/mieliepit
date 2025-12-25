@@ -642,6 +642,7 @@ enum SyntaxConstructions {
 	SC_Def,
 
 	SC_Comment,
+	SC_TailRec,
 	SC_Rec,
 	SC_Ret,
 	SC_Skip,
