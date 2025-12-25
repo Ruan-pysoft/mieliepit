@@ -368,6 +368,8 @@ maybe_t<idx_t> read_primitive_idx() {
 	maybe_t<number_t> read_number() {
 		get_word();
 
+		if (curr_word.len == 0) return {};
+
 		number_t number = {0};
 		for (size_t i = 0; i < curr_word.len; ++i) {
 			if (curr_word.text[i] < '0' || curr_word.text[i] > '9') {
