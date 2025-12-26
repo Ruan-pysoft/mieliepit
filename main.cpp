@@ -31,10 +31,10 @@ void interpret_str(Interpreter &interpreter, const std::string str, bool silent 
 		if (!interpreter.state.error_handled) {
 			std::cout << '\n' << interpreter.state.error << std::endl;
 		}
-		if (interpreter.len == 0) {
+		if (interpreter.curr_word.len == 0) {
 			std::cout << "@ end of line" << std::endl;
 		} else {
-			std::cout << "@ word starting at " << (interpreter.line - str.c_str()) << ": ";
+			std::cout << "@ word starting at " << (interpreter.curr_word.text - str.c_str()) << ": ";
 			for (size_t i = 0; i < interpreter.curr_word.len; ++i) {
 				std::cout << interpreter.curr_word.text[i];
 			}
