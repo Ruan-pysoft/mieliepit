@@ -1590,11 +1590,19 @@ RawFunction tail_recurse = { "tail_rec", [](Runner &runner) {
 } };
 
 RawFunction recurse = { "rec", [](Runner &runner) {
+	#ifdef KERNEL
+	run_compiled_section(
+		runner.initial.code - runner.state.code.buffer,
+		runner.initial.len,
+		runner.state
+	);
+	#else
 	run_compiled_section(
 		runner.initial.code - &*runner.state.code.begin(),
 		runner.initial.len,
 		runner.state
 	);
+	#endif
 } };
 
 RawFunction return_rf = { "ret", [](Runner &runner) {
