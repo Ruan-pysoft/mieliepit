@@ -1330,6 +1330,20 @@ void interpret_word_def(Interpreter &interpreter) {
 		}
 	}
 
+	// push temporary word to words list,
+	// so that self-referential words can work
+	char *tmp_name = (char *)calloc(name_len + 1, 1);
+	for (size_t i = 0; i < name_len; ++i) {
+		tmp_name[i] = name[i];
+	}
+	tmp_name[name_len] = 0;
+	push(interpreter.state.words, {
+		.name = tmp_name,
+		.desc = nullptr,
+		.code_pos = 0,
+		.code_len = 0,
+	});
+
 	while (true) {
 		interpreter.get_word();
 
@@ -1353,11 +1367,17 @@ void interpret_word_def(Interpreter &interpreter) {
 			// TODO: Some sort of a proper error
 			interpreter.state.error = "Error: undefined word";
 			interpreter.state.error_handled = false;
-			return;
+			goto early_return;
 		}
 	}
 
+	pop(interpreter.state.words);
+	free(tmp_name);
 	interpreter.state.define_word(name, name_len, desc, desc_len, code_start, code_len);
+	return;
+early_return:
+	pop(interpreter.state.words);
+	free(tmp_name);
 }
 
 void ignore_word_def(Interpreter &interpreter) {
